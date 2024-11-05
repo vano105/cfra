@@ -1,13 +1,13 @@
 #pragma once
-// #include <cubool/cubool.h>
+#include <cubool.h>
 #include <map>
 #include <string>
 #include <vector>
 
-struct cuBool_Matrix {
+/*struct cuBool_Matrix {
   std::vector<std::vector<std::string>> m;
   cuBool_Matrix &ewiseadd(const cuBool_Matrix &matr) { return *this; }
-};
+};*/
 
 class label_decomposed_graph {
 private:
@@ -27,9 +27,8 @@ public:
 
   cuBool_Matrix &operator[](const std::string &key) {
     if (matrices.find(key) == matrices.end()) {
-      matrices.emplace(key);
-      // cuBool_Matrix_New(&(matrices[key]), matrix_size, matrix_size);
-      // fill empty matrix
+      matrices[key] = nullptr;
+      cuBool_Matrix_New(&matrices[key], matrix_size, matrix_size);
     }
     return matrices[key];
   }

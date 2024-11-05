@@ -24,7 +24,7 @@ public:
 
     bool operator==(const symbol &other) { return label_ == other.label_; }
 
-    bool operator<(const symbol &other) { return label_ < other.label_; }
+    bool operator<(const symbol &other) const { return label_ < other.label_; }
 
     operator std::string() const {
       return label_;
