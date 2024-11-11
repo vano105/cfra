@@ -20,6 +20,7 @@ public:
 
   label_decomposed_graph(const size_t size) : matrix_size(size) {}
 
+  // load from txt file
   label_decomposed_graph(const std::string &path) {
     std::ifstream file(path);
     std::map<std::string, std::pair<std::vector<int>, std::vector<int>>>
@@ -86,5 +87,9 @@ public:
 
   size_t size() { return matrices.size(); }
 
-  ~label_decomposed_graph() {}
+  ~label_decomposed_graph() {
+    for (auto &matr : matrices) {
+      cuBool_Matrix_Free(matr);
+    }
+  }
 };
