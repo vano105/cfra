@@ -109,6 +109,21 @@ public:
 
   cnf_grammar &operator=(const cnf_grammar &other) = default;
 
+  void display() {
+    std::cout << "start nonterm :\n" << start_nonterm_.label_ << '\n';
+    std::cout << "epsilon rules :\n";
+    for (auto &x : epsilon_rules_)
+      std::cout << x.label_ << "  ";
+    std::cout << std::endl << "simple rules :\n";
+    for (auto &x : simple_rules_)
+      std::cout << std::get<0>(x).label_ << "  " << std::get<1>(x).label_
+                << '\n';
+    std::cout << std::endl << "complex rules :\n";
+    for (auto &x : complex_rules_)
+      std::cout << std::get<0>(x).label_ << "  " << std::get<1>(x).label_
+                << "  " << std::get<2>(x).label_ << '\n';
+  }
+
   std::set<symbol> non_terminals() {
     std::set<symbol> epsilon_rules(epsilon_rules_.cbegin(),
                                    epsilon_rules_.cend());

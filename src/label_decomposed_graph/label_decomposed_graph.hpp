@@ -89,7 +89,8 @@ public:
 
   ~label_decomposed_graph() {
     for (auto &matr : matrices) {
-      cuBool_Matrix_Free(matr);
+      cuBool_Matrix_Free(matr.second);
     }
   }
+
 };
