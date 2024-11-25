@@ -8,12 +8,14 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <stdexcept>
 
 class label_decomposed_graph {
 private:
   std::map<std::string, cuBool_Matrix> matrices{};
 
 public:
+  using PairOfValues = std::pair<std::vector<int>, std::vector<int>>;
   size_t matrix_size{};
 
   label_decomposed_graph() {}
@@ -23,12 +25,11 @@ public:
   // load from txt file
   label_decomposed_graph(const std::string &path) {
     std::ifstream file(path);
-    std::map<std::string, std::pair<std::vector<int>, std::vector<int>>>
-        result_matrix;
-
     if (!file.is_open()) {
       std::cerr << "Can't open file: " << path << std::endl;
     }
+
+    std::map<std::string, PairOfValues> result_matrix;
     std::string line;
     size_t line_count = 0;
     while (std::getline(file, line)) {
@@ -42,24 +43,29 @@ public:
         continue;
       }
       matrix_size = std::max(std::max(matrix_size, v), to);
-      result_matrix[label].first.emplace_back(v);
-      result_matrix[label].first.emplace_back(to);
-    }
 
-    for (auto &it : result_matrix) {
-      matrices[it.first] = nullptr;
-      cuBool_Matrix_New(&matrices[it.first], matrix_size, matrix_size);
-      size_t number_of_cols = result_matrix[it.first].first.size();
-      cuBool_Index *rows = new cuBool_Index(number_of_cols);
-      cuBool_Index *cols = new cuBool_Index(number_of_cols);
+      auto &value = result_matrix[label];
+      value.first.emplace_back(v);
+      value.second.emplace_back(to);
+    }
+    ++matrix_size;
+
+    for (auto &[label, value] : result_matrix) {
+      cuBool_Matrix *matrix = &matrices[label];
+      cuBool_Matrix_New(matrix, matrix_size, matrix_size);
+      size_t number_of_values = value.first.size();
+
+      std::vector<cuBool_Index> rows(number_of_values, 0);
+      std::vector<cuBool_Index> cols(number_of_values, 0);
+
       size_t i = 0;
-      for (auto x : result_matrix[it.first].first)
-        rows[++i];
+      for (auto x : value.first)
+        rows[i++] = x;
       i = 0;
-      for (auto x : result_matrix[it.first].second)
-        cols[++i];
-      cuBool_Matrix_Build(matrices[it.first], rows, cols, number_of_cols,
-                          CUBOOL_HINT_NO);
+      for (auto x : value.second)
+        cols[i++] = x;
+
+      cuBool_Matrix_Build(*matrix, rows.data(), cols.data(), number_of_values, CUBOOL_HINT_NO);
     }
     file.close();
   }
@@ -69,8 +75,9 @@ public:
 
   cuBool_Matrix &operator[](const std::string &key) {
     if (matrices.find(key) == matrices.end()) {
-      matrices[key] = nullptr;
-      cuBool_Matrix_New(&matrices[key], matrix_size, matrix_size);
+      cuBool_Matrix *matrix = &matrices[key];
+      cuBool_Matrix_New(matrix, matrix_size, matrix_size);
+      // cuBool_Matrix_Build(*matrix, nullptr, nullptr, 0, CUBOOL_HINT_NO);
     }
     return matrices[key];
   }
@@ -92,5 +99,4 @@ public:
       cuBool_Matrix_Free(matr.second);
     }
   }
-
 };

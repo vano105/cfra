@@ -8,6 +8,8 @@
 #include <string>
 #include <tuple>
 #include <vector>
+#include <ranges>
+#include <algorithm>
 
 class cnf_grammar {
 public:
@@ -63,8 +65,8 @@ public:
       std::string new_str;
 
       for (auto symb : str)
-        if (symb == ' ')
-          new_str.push_back(symb);
+        if (symb != ' ')
+          new_str += symb;
       return new_str;
     };
     auto split = [](std::string &str, const std::string &sep) {
@@ -89,13 +91,19 @@ public:
           start_nonterm_ = symbol(line);
           break;
         }
-        std::vector<std::string> parts = split(line, " ");
+
+        auto words = line | std::views::split(' ');
+        std::vector<std::string> parts;
+        for (const auto& word_range : words) {
+          std::string word(word_range.begin(), word_range.end());
+          parts.push_back(word);
+        }
         if (parts.size() == 1) {
           epsilon_rules_.push_back(symbol(parts[0]));
         } else if (parts.size() == 2) {
           simple_rules_.push_back(
               std::tuple(symbol(parts[0]), symbol(parts[1])));
-        } else if (parts.size() == 2) {
+        } else if (parts.size() == 3) {
           complex_rules_.push_back(
               std::tuple(symbol(parts[0]), symbol(parts[1]), symbol(parts[2])));
         }
@@ -108,21 +116,6 @@ public:
   }
 
   cnf_grammar &operator=(const cnf_grammar &other) = default;
-
-  void display() {
-    std::cout << "start nonterm :\n" << start_nonterm_.label_ << '\n';
-    std::cout << "epsilon rules :\n";
-    for (auto &x : epsilon_rules_)
-      std::cout << x.label_ << "  ";
-    std::cout << std::endl << "simple rules :\n";
-    for (auto &x : simple_rules_)
-      std::cout << std::get<0>(x).label_ << "  " << std::get<1>(x).label_
-                << '\n';
-    std::cout << std::endl << "complex rules :\n";
-    for (auto &x : complex_rules_)
-      std::cout << std::get<0>(x).label_ << "  " << std::get<1>(x).label_
-                << "  " << std::get<2>(x).label_ << '\n';
-  }
 
   std::set<symbol> non_terminals() {
     std::set<symbol> epsilon_rules(epsilon_rules_.cbegin(),
