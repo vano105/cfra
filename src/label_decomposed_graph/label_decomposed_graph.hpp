@@ -1,14 +1,13 @@
 #pragma once
-#include <cstddef>
 #include <cubool.h>
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <ostream>
 #include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
-#include <stdexcept>
 
 class label_decomposed_graph {
 private:
@@ -59,26 +58,33 @@ public:
       std::vector<cuBool_Index> cols(number_of_values, 0);
 
       size_t i = 0;
-      for (auto x : value.first)
+      for (auto x : value.first) {
         rows[i++] = x;
+      }
       i = 0;
-      for (auto x : value.second)
+      for (auto x : value.second) {
         cols[i++] = x;
-
-      cuBool_Matrix_Build(*matrix, rows.data(), cols.data(), number_of_values, CUBOOL_HINT_NO);
+      }
+      cuBool_Matrix_Build(*matrix, rows.data(), cols.data(), number_of_values,
+                          CUBOOL_HINT_NO);
     }
     file.close();
   }
 
-  label_decomposed_graph(const label_decomposed_graph &other)
-      : matrices(other.matrices) {}
+  label_decomposed_graph(const label_decomposed_graph &other) {
+    for (const auto& [key, matrix] : other.matrices) {
+      cuBool_Matrix_Duplicate(matrix, &matrices[key]);
+    }
+  }
 
   cuBool_Matrix &operator[](const std::string &key) {
     if (matrices.find(key) == matrices.end()) {
       cuBool_Matrix *matrix = &matrices[key];
       cuBool_Matrix_New(matrix, matrix_size, matrix_size);
-      // cuBool_Matrix_Build(*matrix, nullptr, nullptr, 0, CUBOOL_HINT_NO);
+      // std::cout << "create new matrix in [" << key << "]" << std::endl;
+      cuBool_Matrix_Build(*matrix, nullptr, nullptr, 0, CUBOOL_HINT_NO);
     }
+    // std::cout << "find matrix in [" << key << "]" << std::endl;
     return matrices[key];
   }
 

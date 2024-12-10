@@ -1,15 +1,15 @@
 #pragma once
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <ranges>
 #include <set>
 #include <stdexcept>
 #include <string>
 #include <tuple>
 #include <vector>
-#include <ranges>
-#include <algorithm>
 
 class cnf_grammar {
 public:
@@ -94,7 +94,7 @@ public:
 
         auto words = line | std::views::split(' ');
         std::vector<std::string> parts;
-        for (const auto& word_range : words) {
+        for (const auto &word_range : words) {
           std::string word(word_range.begin(), word_range.end());
           parts.push_back(word);
         }
@@ -106,6 +106,11 @@ public:
         } else if (parts.size() == 3) {
           complex_rules_.push_back(
               std::tuple(symbol(parts[0]), symbol(parts[1]), symbol(parts[2])));
+        } else {
+          std::cout << parts.size() << std::endl;
+          for (auto &x : parts) {
+            std::cout << x << std::endl;
+          }
         }
       }
 
