@@ -84,6 +84,7 @@ public:
       return result;
     };
 
+
     if (infile.is_open()) {
       while (std::getline(infile, line)) {
         if (line == strip(std::string("Count:"))) {
@@ -99,13 +100,16 @@ public:
           parts.push_back(word);
         }
         if (parts.size() == 1) {
+          // std::cout << parts[0] << std::endl;
           epsilon_rules_.push_back(symbol(parts[0]));
         } else if (parts.size() == 2) {
           simple_rules_.push_back(
               std::tuple(symbol(parts[0]), symbol(parts[1])));
+          //std::cout << parts[0] << ' ' << parts[1] << std::endl;
         } else if (parts.size() == 3) {
           complex_rules_.push_back(
               std::tuple(symbol(parts[0]), symbol(parts[1]), symbol(parts[2])));
+          //std::cout << parts[0] << ' ' << parts[1] << ' ' << parts[2] << std::endl;
         } else {
           std::cout << parts.size() << std::endl;
           for (auto &x : parts) {

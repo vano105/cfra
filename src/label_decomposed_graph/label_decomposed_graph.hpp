@@ -10,10 +10,12 @@
 #include <vector>
 
 class label_decomposed_graph {
-private:
+//private:
+public:
   std::map<std::string, cuBool_Matrix> matrices{};
 
 public:
+
   using PairOfValues = std::pair<std::vector<int>, std::vector<int>>;
   size_t matrix_size{};
 
@@ -37,7 +39,7 @@ public:
       size_t v, to;
       std::string label;
 
-      if (!(iss >> v >> label >> to)) {
+      if (!(iss >> v >> to >> label)) {
         std::cerr << "Wrong file format: " << line << std::endl;
         continue;
       }
@@ -72,6 +74,7 @@ public:
   }
 
   label_decomposed_graph(const label_decomposed_graph &other) {
+    matrix_size = other.matrix_size;
     for (const auto& [key, matrix] : other.matrices) {
       cuBool_Matrix_Duplicate(matrix, &matrices[key]);
     }
