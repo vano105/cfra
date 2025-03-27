@@ -4,7 +4,6 @@
 #include "../label_decomposed_graph/label_decomposed_graph.hpp"
 #include "cubool.h"
 #include <string>
-#include <tuple>
 
 class matrix_base_algo {
 private:
@@ -32,6 +31,13 @@ public:
     std::vector<cuBool_Matrix> results;
     std::set<cuBool_Matrix> uniq_results;
 
+    // create matrix for all terminal in grammar
+    for (auto &x : Grammar.terminals) {
+      if (Graph.matrices.find(x) == Graph.matrices.end()) {
+        cuBool_Matrix_New(&Graph[x], matrix_size, matrix_size);
+      }
+    }
+
     // for epsilone rules
     std::vector<cuBool_Index> rows;
     std::vector<cuBool_Index> cols;
@@ -46,22 +52,12 @@ public:
     cuBool_Matrix_Build(results.back(), rows.data(), cols.data(), matrix_size,
                         CUBOOL_HINT_NO);
     for (const symbol &left : Grammar.epsilon_rules_) {
-      if (Graph.matrices.find(left) == Graph.matrices.end()) {
-        cuBool_Matrix_New(&Graph[left], matrix_size, matrix_size);
-      }
-
       cuBool_Matrix_EWiseAdd(Graph[left], results.back(), Graph[left],
                              CUBOOL_HINT_NO);
     }
 
     // for simple rules
     for (auto &[lhs, rhs] : Grammar.simple_rules_) {
-      if (Graph.matrices.find(lhs) == Graph.matrices.end()) {
-        cuBool_Matrix_New(&Graph[lhs], matrix_size, matrix_size);
-      }
-      if (Graph.matrices.find(rhs) == Graph.matrices.end()) {
-        cuBool_Matrix_New(&Graph[rhs], matrix_size, matrix_size);
-      }
       results.emplace_back();
       cuBool_Matrix_New(&results.back(), matrix_size, matrix_size);
       uniq_results.insert(results.back());
@@ -86,21 +82,13 @@ public:
     while (changed) {
       changed = false;
       for (auto &[lhs, rhs1, rhs2] : Grammar.complex_rules_) {
-        if (Graph.matrices.find(lhs) == Graph.matrices.end()) {
-          cuBool_Matrix_New(&Graph[lhs], matrix_size, matrix_size);
-        }
-        if (Graph.matrices.find(rhs1) == Graph.matrices.end()) {
-          cuBool_Matrix_New(&Graph[rhs1], matrix_size, matrix_size);
-        }
-        if (Graph.matrices.find(rhs2) == Graph.matrices.end()) {
-          cuBool_Matrix_New(&Graph[rhs2], matrix_size, matrix_size);
-        }
         cuBool_Matrix_New(&result, matrix_size, matrix_size);
         cuBool_Matrix_New(&result2, matrix_size, matrix_size);
         cuBool_Matrix_Nvals(Graph[lhs], &old_nvals);
         cuBool_MxM(result, Graph[rhs1], Graph[rhs2], CUBOOL_HINT_NO);
 
         cuBool_Matrix_EWiseAdd(result2, Graph[lhs], result, CUBOOL_HINT_NO);
+        uniq_results.insert(Graph[lhs]);
         Graph[lhs] = result2;
 
         cuBool_Index new_nvals;
