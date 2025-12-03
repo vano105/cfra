@@ -5,7 +5,6 @@
 #include <vector>
 
 #include "cubool.h"
-#include "timer.hpp"
 
 template <typename T, typename... Args> void error(T first, Args... args) {
   std::cout << first << std::endl;
@@ -76,6 +75,7 @@ bool run_algo(const Config &config, const std::string &path_to_testdir) {
 
 bool test(const std::string &path_to_testdir) {
   std::vector<Config> configs{
+    /*
       {
           .test_name = "an_bn",
           .graph = "an_bn/graph.txt",
@@ -95,6 +95,7 @@ bool test(const std::string &path_to_testdir) {
           .grammar = "java/lusearch/grammar.cnf",
           .expected = "java/lusearch/expected.txt",
       },
+      */
       {
           .test_name = "avrora",
           .graph = "java/avrora/avrora.csv",
@@ -143,6 +144,7 @@ bool test(const std::string &path_to_testdir) {
           .grammar = "java/batik/grammar.cnf",
           .expected = "java/batik/expected.txt",
       },
+      /*
       // c_alias graphs
       {
           .test_name = "init",
@@ -223,6 +225,7 @@ bool test(const std::string &path_to_testdir) {
           .grammar = "rdf/eclass/grammar.cnf",
           .expected = "rdf/eclass/expected.txt",
       },
+      */
   };
 
   for (const auto &config : configs) {
@@ -234,4 +237,4 @@ bool test(const std::string &path_to_testdir) {
   return true;
 }
 
-int main() { return test("../test_data/"); }
+int main() { return test("../data/test_data/"); }

@@ -38,6 +38,8 @@ public:
   };
 
   symbol start_nonterm_{};
+  std::set<symbol> non_terminals;
+  std::set<symbol> terminals;
   std::vector<symbol> epsilon_rules_;
   std::vector<std::tuple<symbol, symbol>> simple_rules_;
   std::vector<std::tuple<symbol, symbol, symbol>> complex_rules_;
@@ -84,7 +86,6 @@ public:
       return result;
     };
 
-
     if (infile.is_open()) {
       while (std::getline(infile, line)) {
         if (line == strip(std::string("Count:"))) {
@@ -100,16 +101,23 @@ public:
           parts.push_back(word);
         }
         if (parts.size() == 1) {
-          // std::cout << parts[0] << std::endl;
+          non_terminals.insert(parts[0]);
+          terminals.insert(parts[0]);
           epsilon_rules_.push_back(symbol(parts[0]));
         } else if (parts.size() == 2) {
+          non_terminals.insert(parts[0]);
+          terminals.insert(parts[0]);
+          terminals.insert(parts[1]);
+          epsilon_rules_.push_back(symbol(parts[0]));
           simple_rules_.push_back(
               std::tuple(symbol(parts[0]), symbol(parts[1])));
-          //std::cout << parts[0] << ' ' << parts[1] << std::endl;
         } else if (parts.size() == 3) {
+          non_terminals.insert(parts[0]);
+          terminals.insert(parts[0]);
+          terminals.insert(parts[1]);
+          terminals.insert(parts[2]);
           complex_rules_.push_back(
               std::tuple(symbol(parts[0]), symbol(parts[1]), symbol(parts[2])));
-          //std::cout << parts[0] << ' ' << parts[1] << ' ' << parts[2] << std::endl;
         } else {
           std::cout << parts.size() << std::endl;
           for (auto &x : parts) {
@@ -126,6 +134,7 @@ public:
 
   cnf_grammar &operator=(const cnf_grammar &other) = default;
 
+  /*
   std::set<symbol> non_terminals() {
     std::set<symbol> epsilon_rules(epsilon_rules_.cbegin(),
                                    epsilon_rules_.cend());
@@ -142,6 +151,7 @@ public:
 
     return result_set;
   }
+  */
 
   std::set<symbol> symbols() {
     std::set<symbol> epsilon_rules(epsilon_rules_.cbegin(),
