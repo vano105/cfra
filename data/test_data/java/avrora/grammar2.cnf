@@ -1,0 +1,21 @@
+alloc_term alloc
+assign_nonterm assign
+alloc_r_term alloc_r
+assign_r_term assign_r
+PT alloc_term
+PT assign_nonterm PT
+FT alloc_r_term
+FT FT assign_r_term
+Al PT FT
+PT LPFSi PT
+FT FT SPFLi
+LPFSi LPi FSi
+LPi load_i PT
+FSi FT store_i
+SPFLi SPi FLi
+SPi store_i PT
+FLi FT load_i
+PT
+FT
+Count:
+PT
