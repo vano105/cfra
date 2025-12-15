@@ -76,47 +76,63 @@ public:
             this_matrix = result;
         }
     }
-    
-    // Разность множеств поэлементно
+
+    // Разность множеств поэлементно: this \ other
     CFMatrixRepresentation* difference(const CFMatrixRepresentation& other) const {
         auto result = new CFMatrixRepresentation(matrix_size);
         
         for (const auto& [label, this_matrix] : matrices) {
-            if (other.has(label)) {
-                // Для разности нужна специальная операция
-                // В cuBool нет встроенной разности, реализуем через извлечение элементов
-                cuBool_Index this_nvals;
-                cuBool_Matrix_Nvals(this_matrix, &this_nvals);
+            cuBool_Index this_nvals;
+            cuBool_Matrix_Nvals(this_matrix, &this_nvals);
+            
+            if (this_nvals == 0) continue;
+            
+            // Извлекаем все элементы из this_matrix
+            std::vector<cuBool_Index> this_rows(this_nvals), this_cols(this_nvals);
+            cuBool_Matrix_ExtractPairs(this_matrix, this_rows.data(), this_cols.data(), &this_nvals);
+            
+            if (!other.contains_key(label)) {
+                // Если в other нет этого нетерминала - копируем все элементы
+                cuBool_Matrix& res_matrix = result->get_or_create(label);
+                cuBool_Matrix_Build(res_matrix, this_rows.data(), this_cols.data(), 
+                                  this_nvals, CUBOOL_HINT_NO);
+            } else {
+                // Если в other есть этот нетерминал - нужно вычислить разность
+                const cuBool_Matrix& other_matrix = other.matrices.at(label);
+                cuBool_Index other_nvals;
+                cuBool_Matrix_Nvals(other_matrix, &other_nvals);
                 
-                if (this_nvals > 0) {
-                    std::vector<cuBool_Index> this_rows(this_nvals), this_cols(this_nvals);
-                    cuBool_Matrix_ExtractPairs(this_matrix, this_rows.data(), this_cols.data(), &this_nvals);
+                if (other_nvals == 0) {
+                    // other пустой - копируем все из this
+                    cuBool_Matrix& res_matrix = result->get_or_create(label);
+                    cuBool_Matrix_Build(res_matrix, this_rows.data(), this_cols.data(), 
+                                      this_nvals, CUBOOL_HINT_NO);
+                } else {
+                    // Извлекаем все элементы из other_matrix в set для быстрого поиска
+                    std::vector<cuBool_Index> other_rows(other_nvals), other_cols(other_nvals);
+                    cuBool_Matrix_ExtractPairs(other_matrix, other_rows.data(), other_cols.data(), &other_nvals);
                     
-                    const cuBool_Matrix& other_matrix = other.matrices.at(label);
-                    
-                    std::vector<cuBool_Index> result_rows, result_cols;
-                    for (size_t i = 0; i < this_nvals; i++) {
-                        // Проверяем, есть ли элемент в other
-                        cuBool_Index temp_nvals = 1;
-                        cuBool_Index temp_row, temp_col;
-                        cuBool_Matrix_ExtractPairs(other_matrix, &temp_row, &temp_col, &temp_nvals);
-                        
-                        // Упрощенная проверка - добавляем все из this, что не в other
-                        result_rows.push_back(this_rows[i]);
-                        result_cols.push_back(this_cols[i]);
+                    std::set<std::pair<cuBool_Index, cuBool_Index>> other_set;
+                    for (size_t i = 0; i < other_nvals; i++) {
+                        other_set.insert({other_rows[i], other_cols[i]});
                     }
                     
+                    // Оставляем только элементы из this, которых НЕТ в other
+                    std::vector<cuBool_Index> result_rows, result_cols;
+                    for (size_t i = 0; i < this_nvals; i++) {
+                        if (other_set.find({this_rows[i], this_cols[i]}) == other_set.end()) {
+                            result_rows.push_back(this_rows[i]);
+                            result_cols.push_back(this_cols[i]);
+                        }
+                    }
+                    
+                    // Создаём результирующую матрицу только если есть элементы
                     if (!result_rows.empty()) {
                         cuBool_Matrix& res_matrix = result->get_or_create(label);
                         cuBool_Matrix_Build(res_matrix, result_rows.data(), result_cols.data(), 
                                           result_rows.size(), CUBOOL_HINT_NO);
                     }
                 }
-            } else {
-                // Если в other нет этого нетерминала, копируем всю матрицу
-                cuBool_Matrix new_matrix;
-                cuBool_Matrix_Duplicate(this_matrix, &new_matrix);
-                result->matrices[label] = new_matrix;
             }
         }
         

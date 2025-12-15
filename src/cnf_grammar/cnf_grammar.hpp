@@ -108,7 +108,7 @@ public:
           non_terminals.insert(parts[0]);
           terminals.insert(parts[0]);
           terminals.insert(parts[1]);
-          epsilon_rules_.push_back(symbol(parts[0]));
+          // epsilon_rules_.push_back(symbol(parts[0]));
           simple_rules_.push_back(
               std::tuple(symbol(parts[0]), symbol(parts[1])));
         } else if (parts.size() == 3) {

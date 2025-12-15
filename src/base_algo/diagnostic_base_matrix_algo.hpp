@@ -84,14 +84,17 @@ private:
     }
     
     // Умножение для CNF правил (A → B C)
-    void apply_cnf_rules(const CFMatrixRepresentation& M, 
+    void apply_cnf_rules(CFMatrixRepresentation& M, 
                         CFMatrixRepresentation& result) {
         for (const auto& rule : cnf_rules) {
             symbol X = std::get<0>(rule);
             symbol Y = std::get<1>(rule);
             symbol Z = std::get<2>(rule);
             
-            if (!M.has(Y) || !M.has(Z)) continue;
+            // if (!M.has(Y) || !M.has(Z)) continue;
+
+            const cuBool_Matrix& matrix_Y = M.get_or_create(Y);
+            const cuBool_Matrix& matrix_Z = M.get_or_create(Z);
             
             cuBool_Matrix product;
             cuBool_Matrix_New(&product, matrix_size, matrix_size);

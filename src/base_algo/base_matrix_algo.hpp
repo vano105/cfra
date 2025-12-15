@@ -6,39 +6,101 @@
 #include <cubool.h>
 #include <iostream>
 
-class matrix_base_algo {
+/**
+ * Полностью исправленная базовая версия матричного алгоритма КС-достижимости
+ * 
+ * ИСПРАВЛЕНИЯ:
+ * 1. Добавлена классификация правил на все 4 типа
+ * 2. Правильный выбор источника матриц (M vs graph) для умножения
+ * 3. Корректная обработка double-terminal правил (A → a b)
+ */
+class matrix_base_algo_fixed {
 private:
     cnf_grammar grammar;
     label_decomposed_graph graph;
     size_t matrix_size;
     
     using symbol = cnf_grammar::symbol;
+    using complex_rule = std::tuple<symbol, symbol, symbol>;
     
-    // Операция конкатенации путей для GB-полукольца КС-достижимости
-    // (A ·Gr B)_X = ∑∨ {A_Y ·Bool B_Z | (X → Y Z) ∈ P}
-    void multiply_cf_matrices(const CFMatrixRepresentation& A, 
-                              const CFMatrixRepresentation& B,
-                              CFMatrixRepresentation& result) {
-        // Для каждого сложного правила X → Y Z
+    // Классификация правил
+    std::vector<complex_rule> cnf_rules;           // A → BC (оба нетерминалы)
+    std::vector<complex_rule> extended_left_rules; // A → Ba (нетерминал + терминал)
+    std::vector<complex_rule> extended_right_rules; // A → aB (терминал + нетерминал)
+    std::vector<complex_rule> double_terminal_rules; // A → ab (оба терминалы)
+    
+    // Предварительная классификация правил
+    void classify_rules() {
+        std::cout << "Classifying " << grammar.complex_rules_.size() << " rules..." << std::endl;
+        
+        // Собираем нетерминалы из грамматики
+        std::set<std::string> nonterminals;
+        
+        // Стартовый нетерминал
+        nonterminals.insert(grammar.start_nonterm_.label_);
+        
+        // Из сложных правил (только LHS)
+        for (const auto& rule : grammar.complex_rules_) {
+            nonterminals.insert(std::get<0>(rule));
+        }
+        
+        // Из простых правил (только LHS)
+        for (const auto& rule : grammar.simple_rules_) {
+            nonterminals.insert(std::get<0>(rule));
+        }
+        
+        // Из эпсилон-правил
+        for (const auto& eps : grammar.epsilon_rules_) {
+            nonterminals.insert(eps);
+        }
+        
+        std::cout << "Found " << nonterminals.size() << " nonterminals in grammar" << std::endl;
+        
+        // Классифицируем правила
         for (const auto& rule : grammar.complex_rules_) {
             symbol X = std::get<0>(rule);
             symbol Y = std::get<1>(rule);
             symbol Z = std::get<2>(rule);
             
-            // Проверяем наличие матриц для Y и Z
-            if (!A.has(Y) || !B.has(Z)) continue;
+            bool Y_is_nonterminal = (nonterminals.find(Y) != nonterminals.end());
+            bool Z_is_nonterminal = (nonterminals.find(Z) != nonterminals.end());
             
-            // Вычисляем A_Y · B_Z
+            if (Y_is_nonterminal && Z_is_nonterminal) {
+                cnf_rules.push_back(rule);
+            } else if (Y_is_nonterminal && !Z_is_nonterminal) {
+                extended_left_rules.push_back(rule);
+            } else if (!Y_is_nonterminal && Z_is_nonterminal) {
+                extended_right_rules.push_back(rule);
+            } else {
+                // ОБА ТЕРМИНАЛЫ!
+                double_terminal_rules.push_back(rule);
+            }
+        }
+        
+        std::cout << "  CNF rules (A→BC): " << cnf_rules.size() << std::endl;
+        std::cout << "  Extended left (A→Ba): " << extended_left_rules.size() << std::endl;
+        std::cout << "  Extended right (A→aB): " << extended_right_rules.size() << std::endl;
+        std::cout << "  Double terminal (A→ab): " << double_terminal_rules.size() << std::endl;
+    }
+    
+    // Умножение для CNF правил (A → BC где B,C - нетерминалы)
+    void apply_cnf_rules(const CFMatrixRepresentation& M, 
+                        CFMatrixRepresentation& result) {
+        for (const auto& rule : cnf_rules) {
+            symbol X = std::get<0>(rule);
+            symbol Y = std::get<1>(rule);
+            symbol Z = std::get<2>(rule);
+            
+            if (!M.has(Y) || !M.has(Z)) continue;
+            
             cuBool_Matrix product;
             cuBool_Matrix_New(&product, matrix_size, matrix_size);
-            cuBool_MxM(product, A.matrices.at(Y), B.matrices.at(Z), CUBOOL_HINT_NO);
+            cuBool_MxM(product, M.matrices.at(Y), M.matrices.at(Z), CUBOOL_HINT_NO);
             
-            // Проверяем, есть ли ненулевые элементы
             cuBool_Index nvals;
             cuBool_Matrix_Nvals(product, &nvals);
             
             if (nvals > 0) {
-                // Добавляем к результату для нетерминала X
                 cuBool_Matrix& result_x = result.get_or_create(X);
                 cuBool_Matrix temp;
                 cuBool_Matrix_New(&temp, matrix_size, matrix_size);
@@ -50,23 +112,142 @@ private:
             cuBool_Matrix_Free(product);
         }
     }
+    
+    // Умножение для Extended left правил (A → Ba где B - нетерминал, a - терминал)
+    void apply_extended_left_rules(const CFMatrixRepresentation& M,
+                                   CFMatrixRepresentation& result) {
+        for (const auto& rule : extended_left_rules) {
+            symbol X = std::get<0>(rule);
+            symbol Y = std::get<1>(rule); // нетерминал
+            symbol Z = std::get<2>(rule); // терминал
+            
+            if (!M.has(Y)) continue;
+            
+            // Z - терминал, берём из графа
+            if (graph.matrices.find(Z) == graph.matrices.end()) continue;
+            
+            cuBool_Index graph_nvals;
+            cuBool_Matrix_Nvals(graph.matrices.at(Z), &graph_nvals);
+            if (graph_nvals == 0) continue;
+            
+            cuBool_Matrix product;
+            cuBool_Matrix_New(&product, matrix_size, matrix_size);
+            cuBool_MxM(product, M.matrices.at(Y), graph.matrices.at(Z), CUBOOL_HINT_NO);
+            
+            cuBool_Index nvals;
+            cuBool_Matrix_Nvals(product, &nvals);
+            
+            if (nvals > 0) {
+                cuBool_Matrix& result_x = result.get_or_create(X);
+                cuBool_Matrix temp;
+                cuBool_Matrix_New(&temp, matrix_size, matrix_size);
+                cuBool_Matrix_EWiseAdd(temp, result_x, product, CUBOOL_HINT_NO);
+                cuBool_Matrix_Free(result_x);
+                result_x = temp;
+            }
+            
+            cuBool_Matrix_Free(product);
+        }
+    }
+    
+    // Умножение для Extended right правил (A → aB где a - терминал, B - нетерминал)
+    void apply_extended_right_rules(const CFMatrixRepresentation& M,
+                                    CFMatrixRepresentation& result) {
+        for (const auto& rule : extended_right_rules) {
+            symbol X = std::get<0>(rule);
+            symbol Y = std::get<1>(rule); // терминал
+            symbol Z = std::get<2>(rule); // нетерминал
+            
+            if (!M.has(Z)) continue;
+            
+            // Y - терминал, берём из графа
+            if (graph.matrices.find(Y) == graph.matrices.end()) continue;
+            
+            cuBool_Index graph_nvals;
+            cuBool_Matrix_Nvals(graph.matrices.at(Y), &graph_nvals);
+            if (graph_nvals == 0) continue;
+            
+            cuBool_Matrix product;
+            cuBool_Matrix_New(&product, matrix_size, matrix_size);
+            cuBool_MxM(product, graph.matrices.at(Y), M.matrices.at(Z), CUBOOL_HINT_NO);
+            
+            cuBool_Index nvals;
+            cuBool_Matrix_Nvals(product, &nvals);
+            
+            if (nvals > 0) {
+                cuBool_Matrix& result_x = result.get_or_create(X);
+                cuBool_Matrix temp;
+                cuBool_Matrix_New(&temp, matrix_size, matrix_size);
+                cuBool_Matrix_EWiseAdd(temp, result_x, product, CUBOOL_HINT_NO);
+                cuBool_Matrix_Free(result_x);
+                result_x = temp;
+            }
+            
+            cuBool_Matrix_Free(product);
+        }
+    }
+    
+    // Умножение для Double terminal правил (A → ab где оба a,b - терминалы)
+    void apply_double_terminal_rules(CFMatrixRepresentation& result) {
+        for (const auto& rule : double_terminal_rules) {
+            symbol X = std::get<0>(rule);
+            symbol Y = std::get<1>(rule); // терминал
+            symbol Z = std::get<2>(rule); // терминал
+            
+            // Оба - терминалы, берём из графа
+            if (graph.matrices.find(Y) == graph.matrices.end()) continue;
+            if (graph.matrices.find(Z) == graph.matrices.end()) continue;
+            
+            cuBool_Index y_nvals, z_nvals;
+            cuBool_Matrix_Nvals(graph.matrices.at(Y), &y_nvals);
+            cuBool_Matrix_Nvals(graph.matrices.at(Z), &z_nvals);
+            if (y_nvals == 0 || z_nvals == 0) continue;
+            
+            cuBool_Matrix product;
+            cuBool_Matrix_New(&product, matrix_size, matrix_size);
+            cuBool_MxM(product, graph.matrices.at(Y), graph.matrices.at(Z), CUBOOL_HINT_NO);
+            
+            cuBool_Index nvals;
+            cuBool_Matrix_Nvals(product, &nvals);
+            
+            if (nvals > 0) {
+                cuBool_Matrix& result_x = result.get_or_create(X);
+                cuBool_Matrix temp;
+                cuBool_Matrix_New(&temp, matrix_size, matrix_size);
+                cuBool_Matrix_EWiseAdd(temp, result_x, product, CUBOOL_HINT_NO);
+                cuBool_Matrix_Free(result_x);
+                result_x = temp;
+            }
+            
+            cuBool_Matrix_Free(product);
+        }
+    }
+    
+    // Применение всех типов правил
+    void multiply_cf_matrices(const CFMatrixRepresentation& M, 
+                              CFMatrixRepresentation& result) {
+        apply_cnf_rules(M, result);
+        apply_extended_left_rules(M, result);
+        apply_extended_right_rules(M, result);
+        // Double terminal правила не зависят от M, применяем отдельно
+    }
 
 public:
-    matrix_base_algo(const cnf_grammar& gr, const label_decomposed_graph& g)
-        : grammar(gr), graph(g), matrix_size(g.matrix_size) {}
+    matrix_base_algo_fixed(const cnf_grammar& gr, const label_decomposed_graph& g)
+        : grammar(gr), graph(g), matrix_size(g.matrix_size) {
+        classify_rules();
+    }
     
-    matrix_base_algo(const std::string& grammar_path, const std::string& graph_path) {
+    matrix_base_algo_fixed(const std::string& grammar_path, const std::string& graph_path) {
         grammar = cnf_grammar(grammar_path);
         graph = label_decomposed_graph(graph_path);
         matrix_size = graph.matrix_size;
+        classify_rules();
     }
     
     cuBool_Matrix solve() {
+        std::cout << "\n=== Fixed Base Matrix Algorithm ===" << std::endl;
         std::cout << "Matrix size: " << matrix_size << std::endl;
-        std::cout << "Number of nonterminals: " << grammar.non_terminals.size() << std::endl;
-        std::cout << "Number of complex rules: " << grammar.complex_rules_.size() << std::endl;
-        std::cout << "Number of simple rules: " << grammar.simple_rules_.size() << std::endl;
-        std::cout << "Number of epsilon rules: " << grammar.epsilon_rules_.size() << std::endl;
         
         CFMatrixRepresentation M(matrix_size);
         
@@ -77,7 +258,6 @@ public:
             symbol lhs = std::get<0>(rule);
             symbol rhs = std::get<1>(rule);
             
-            // Если rhs - терминал и есть соответствующие рёбра в графе
             if (graph.matrices.find(rhs) != graph.matrices.end()) {
                 cuBool_Index graph_nvals;
                 cuBool_Matrix_Nvals(graph.matrices.at(rhs), &graph_nvals);
@@ -117,93 +297,65 @@ public:
             cuBool_Matrix_Free(identity);
             m_eps = temp;
         }
-        std::cout << "Initialized " << grammar.epsilon_rules_.size() << " nonterminals from epsilon rules" << std::endl;
+        std::cout << "Initialized " << grammar.epsilon_rules_.size() 
+                  << " nonterminals from epsilon rules" << std::endl;
         
-        // Выводим начальное состояние
-        std::cout << "\nInitial state:" << std::endl;
+        // 3. КРИТИЧНО: Применяем double-terminal правила ОДИН РАЗ для инициализации
+        std::cout << "\nApplying double-terminal rules for initialization..." << std::endl;
+        apply_double_terminal_rules(M);
+        
+        // Начальная статистика
         cuBool_Index total_initial = 0;
+        int nonterms_initial = 0;
         for (const auto& [label, matrix] : M.matrices) {
             cuBool_Index nvals;
             cuBool_Matrix_Nvals(matrix, &nvals);
-            total_initial += nvals;
+            if (nvals > 0) {
+                total_initial += nvals;
+                nonterms_initial++;
+            }
         }
-        std::cout << "Total edges in initial M: " << total_initial << std::endl;
+        std::cout << "Initial: " << nonterms_initial << " nonterminals, " 
+                  << total_initial << " edges" << std::endl;
         
-        // 3. Основной цикл: пока M меняется
-        std::cout << "\n=== Starting main loop ===" << std::endl;
+        // 4. Основной цикл
+        std::cout << "\n=== Main loop ===" << std::endl;
         bool changed = true;
         int iteration = 0;
         
         while (changed) {
             iteration++;
-            std::cout << "\n--- Iteration " << iteration << " ---" << std::endl;
+            std::cout << "\nIteration " << iteration << std::endl;
             
-            // Подсчитываем текущее состояние (только непустые!)
-            cuBool_Index total_before = 0;
-            int nonterminals_before = 0;
-            for (const auto& [label, matrix] : M.matrices) {
-                cuBool_Index nvals;
-                cuBool_Matrix_Nvals(matrix, &nvals);
-                if (nvals > 0) {
-                    total_before += nvals;
-                    nonterminals_before++;
-                }
-            }
-            std::cout << "M before: " << nonterminals_before << " nonterminals, " 
-                      << total_before << " total edges" << std::endl;
-            
-            // Сохраняем снимок для сравнения
             auto M_snapshot = M.clone();
             
-            // Вычисляем M ·Gr M
             CFMatrixRepresentation product(matrix_size);
-            multiply_cf_matrices(M, M, product);
             
-            // Подсчитываем размер произведения (только непустые!)
-            cuBool_Index product_total = 0;
-            int product_nonterminals = 0;
-            for (const auto& [label, matrix] : product.matrices) {
-                cuBool_Index nvals;
-                cuBool_Matrix_Nvals(matrix, &nvals);
-                if (nvals > 0) {
-                    product_total += nvals;
-                    product_nonterminals++;
-                }
-            }
-            std::cout << "Product (M ·Gr M): " << product_nonterminals 
-                      << " nonterminals, " << product_total << " total edges" << std::endl;
+            // Применяем все типы правил (кроме double-terminal)
+            multiply_cf_matrices(M, product);
             
-            // M ← M ∪ (M ·Gr M)
+            // M ← M ∪ product
             M.union_with(product);
             
-            // Подсчитываем после объединения (только непустые!)
-            cuBool_Index total_after = 0;
-            int nonterminals_after = 0;
+            // Статистика
+            cuBool_Index total = 0;
+            int nonterms = 0;
             for (const auto& [label, matrix] : M.matrices) {
                 cuBool_Index nvals;
                 cuBool_Matrix_Nvals(matrix, &nvals);
                 if (nvals > 0) {
-                    total_after += nvals;
-                    nonterminals_after++;
+                    total += nvals;
+                    nonterms++;
                 }
             }
-            std::cout << "M after union: " << nonterminals_after << " nonterminals, " 
-                      << total_after << " total edges" << std::endl;
-            std::cout << "Added: " << (total_after - total_before) << " new edges" << std::endl;
+            std::cout << "  After: " << nonterms << " nonterminals, " << total << " edges" << std::endl;
             
-            // Проверяем изменения: сравниваем M с M_snapshot
+            // Проверка сходимости
             changed = !M.equals(*M_snapshot);
-            
-            // Освобождаем память
             delete M_snapshot;
             
-            if (changed) {
-                std::cout << "Status: CHANGED - continuing" << std::endl;
-            } else {
-                std::cout << "Status: CONVERGED - stopping" << std::endl;
-            }
+            std::cout << "  Status: " << (changed ? "CHANGED" : "CONVERGED") << std::endl;
             
-            // Защита от бесконечного цикла
             if (iteration > 100) {
                 std::cerr << "WARNING: Too many iterations (>100), stopping!" << std::endl;
                 break;
@@ -213,16 +365,6 @@ public:
         std::cout << "\n=== Convergence achieved ===" << std::endl;
         std::cout << "Total iterations: " << iteration << std::endl;
         
-        // Финальная статистика
-        std::cout << "\nFinal state:" << std::endl;
-        cuBool_Index total_final = 0;
-        for (const auto& [label, matrix] : M.matrices) {
-            cuBool_Index nvals;
-            cuBool_Matrix_Nvals(matrix, &nvals);
-            total_final += nvals;
-        }
-        std::cout << "Total edges in final M: " << total_final << std::endl;
-        
         // Возвращаем матрицу для стартового нетерминала
         if (M.has(grammar.start_nonterm_)) {
             cuBool_Matrix result;
@@ -230,6 +372,7 @@ public:
             
             cuBool_Index result_nvals;
             cuBool_Matrix_Nvals(result, &result_nvals);
+            std::cout << "Final result: " << result_nvals << " reachable pairs" << std::endl;
             
             return result;
         } else {
