@@ -16,10 +16,15 @@
  * Комбинирует все оптимизации Муравьева:
  * 1. Инкрементальные вычисления (3.1): O(n⁵) → O(n⁴)
  * 2. Проверка тривиальных операций (3.3)
- * 3. Динамический выбор формата (3.4) - в cuBool ограничено
+ * 3. Динамический выбор формата (3.4) - ограничено в cuBool
  * 4. Отложенное сложение (3.5): O(n⁴) → O(n³)
  * 
  * Итоговая сложность: O(n³)
+ * 
+ * ИСПРАВЛЕНИЯ:
+ * - Убраны else if в apply_cnf (все случаи независимы)
+ * - Добавлены простые правила в основной цикл
+ * - Исправлено управление памятью в multiply_and_add_lazy
  */
 class FullyOptimizedAlgo {
 private:
@@ -81,7 +86,13 @@ private:
         return nvals == 0;
     }
     
-    // Умножение с lazy addition
+    /**
+     * Умножение с lazy addition
+     * 
+     * ИСПРАВЛЕНИЕ: правильное управление памятью
+     * - product освобождается только если не добавлен в lazy_result
+     * - при !use_lazy_add освобождается temp после add
+     */
     void multiply_and_add_lazy(cuBool_Matrix A, cuBool_Matrix B,
                                const std::string& result_label,
                                LazyCFMatrixRepresentation& lazy_result) {
@@ -100,27 +111,47 @@ private:
         
         if (nvals > 0) {
             if (config.use_lazy_add) {
+                // Lazy add: добавляем символически (add делает dup)
                 lazy_result.add(result_label, product);
                 stats.lazy_additions++;
+                cuBool_Matrix_Free(product);  // Освобождаем оригинал
             } else {
-                // Без lazy add - сразу конкретное сложение
+                // Конкретное сложение: материализуем и складываем
                 cuBool_Matrix materialized = lazy_result.materialize(result_label);
                 cuBool_Matrix temp;
                 cuBool_Matrix_New(&temp, matrix_size, matrix_size);
                 cuBool_Matrix_EWiseAdd(temp, materialized, product, CUBOOL_HINT_NO);
                 cuBool_Matrix_Free(materialized);
                 cuBool_Matrix_Free(product);
-                product = temp;
                 
-                // Создаём новый lazy set с одной матрицей
-                lazy_result.add(result_label, product);
+                // Добавляем результат (add делает dup)
+                lazy_result.add(result_label, temp);
+                cuBool_Matrix_Free(temp);  // Освобождаем temp после add
                 stats.concrete_additions++;
             }
+        } else {
+            cuBool_Matrix_Free(product);
         }
-        
-        cuBool_Matrix_Free(product);
     }
     
+    /**
+     * Применить CNF правила для инкрементальных вычислений
+     * 
+     * КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: убраны else if!
+     * Все три случая должны выполняться независимо:
+     * 1. delta[Y] · delta[Z] - оба новые
+     * 2. M[Y] · delta[Z] - Y существует, Z новый
+     * 3. delta[Y] · M[Z] - Y новый, Z существует
+     * 
+     * Пример почему else if неправильно:
+     * Правило: S → S S
+     * Если S ∈ delta, то нужны ВСЕ три произведения:
+     * - delta[S] · delta[S]
+     * - M[S] · delta[S]  
+     * - delta[S] · M[S]
+     * 
+     * С else if получим только первое!
+     */
     void apply_cnf_incremental_lazy(const CFMatrixRepresentation& M,
                                      const CFMatrixRepresentation& delta,
                                      LazyCFMatrixRepresentation& lazy_result) {
@@ -129,84 +160,105 @@ private:
             symbol Y = std::get<1>(rule);
             symbol Z = std::get<2>(rule);
             
-            // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: добавлен случай delta[Y] · delta[Z]!
-            // Иначе правила типа V2_V3 ← V2 · V3 не применятся, если оба в delta
-            
-            // 1. delta[Y] · delta[Z] (оба новые)
+            // Случай 1: delta[Y] · delta[Z] (оба новые)
             if (delta.has(Y) && delta.has(Z)) {
                 multiply_and_add_lazy(delta.matrices.at(Y), delta.matrices.at(Z), X, lazy_result);
             }
-            // ВАЖНО: проверяем "else if" чтобы не дублировать, если Y==Z
-            // 2. M[Y] · delta[Z] (Y существует, Z новый)
-            else if (M.has(Y) && delta.has(Z)) {
+            
+            // Случай 2: M[Y] · delta[Z] (Y существует, Z новый)
+            // НЕ else if! Может быть Y==Z, и оба в delta и M
+            if (M.has(Y) && delta.has(Z)) {
                 multiply_and_add_lazy(M.matrices.at(Y), delta.matrices.at(Z), X, lazy_result);
             }
-            // 3. delta[Y] · M[Z] (Y новый, Z существует)
-            else if (delta.has(Y) && M.has(Z)) {
+            
+            // Случай 3: delta[Y] · M[Z] (Y новый, Z существует)
+            if (delta.has(Y) && M.has(Z)) {
                 multiply_and_add_lazy(delta.matrices.at(Y), M.matrices.at(Z), X, lazy_result);
             }
         }
     }
     
+    /**
+     * Extended left правила: A → Ba (B - нетерминал, a - терминал)
+     */
     void apply_extended_left_incremental_lazy(const CFMatrixRepresentation& M,
                                               const CFMatrixRepresentation& delta,
                                               LazyCFMatrixRepresentation& lazy_result) {
-        // Применяем для delta
         for (const auto& rule : extended_left_rules) {
             symbol X = std::get<0>(rule);
-            symbol Y = std::get<1>(rule);
-            symbol Z = std::get<2>(rule);
+            symbol Y = std::get<1>(rule);  // нетерминал
+            symbol Z = std::get<2>(rule);  // терминал
             
-            if (!delta.has(Y)) continue;
             if (graph.matrices.find(Z) == graph.matrices.end()) continue;
             
-            multiply_and_add_lazy(delta.matrices.at(Y), graph.matrices.at(Z), X, lazy_result);
-        }
-        
-        // Применяем для M
-        for (const auto& rule : extended_left_rules) {
-            symbol X = std::get<0>(rule);
-            symbol Y = std::get<1>(rule);
-            symbol Z = std::get<2>(rule);
+            // delta[Y] · graph[Z]
+            if (delta.has(Y)) {
+                multiply_and_add_lazy(delta.matrices.at(Y), graph.matrices.at(Z), X, lazy_result);
+            }
             
-            if (!M.has(Y)) continue;
-            if (graph.matrices.find(Z) == graph.matrices.end()) continue;
-            
-            multiply_and_add_lazy(M.matrices.at(Y), graph.matrices.at(Z), X, lazy_result);
+            // M[Y] · graph[Z]
+            if (M.has(Y)) {
+                multiply_and_add_lazy(M.matrices.at(Y), graph.matrices.at(Z), X, lazy_result);
+            }
         }
     }
     
+    /**
+     * Extended right правила: A → aB (a - терминал, B - нетерминал)
+     */
     void apply_extended_right_incremental_lazy(const CFMatrixRepresentation& M,
                                                const CFMatrixRepresentation& delta,
                                                LazyCFMatrixRepresentation& lazy_result) {
-        // Применяем для delta (новые элементы)
         for (const auto& rule : extended_right_rules) {
             symbol X = std::get<0>(rule);
-            symbol Y = std::get<1>(rule); // терминал
-            symbol Z = std::get<2>(rule); // нетерминал
+            symbol Y = std::get<1>(rule);  // терминал
+            symbol Z = std::get<2>(rule);  // нетерминал
             
-            if (!delta.has(Z)) continue;
             if (graph.matrices.find(Y) == graph.matrices.end()) continue;
             
-            multiply_and_add_lazy(graph.matrices.at(Y), delta.matrices.at(Z), X, lazy_result);
-        }
-        
-        // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: применяем для M тоже!
-        // Иначе правила типа S → d_r V_d не применятся если V_d уже в M
-        for (const auto& rule : extended_right_rules) {
-            symbol X = std::get<0>(rule);
-            symbol Y = std::get<1>(rule); // терминал
-            symbol Z = std::get<2>(rule); // нетерминал
+            // graph[Y] · delta[Z]
+            if (delta.has(Z)) {
+                multiply_and_add_lazy(graph.matrices.at(Y), delta.matrices.at(Z), X, lazy_result);
+            }
             
-            // Проверяем M, но пропускаем если уже в delta (чтобы не дублировать)
-            if (delta.has(Z)) continue; // Уже обработано выше
-            if (!M.has(Z)) continue;
-            if (graph.matrices.find(Y) == graph.matrices.end()) continue;
-            
-            multiply_and_add_lazy(graph.matrices.at(Y), M.matrices.at(Z), X, lazy_result);
+            // graph[Y] · M[Z]
+            // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: применяем для M тоже!
+            // Без этого правила типа S → d_r V_d не применятся если V_d уже в M
+            if (M.has(Z)) {
+                multiply_and_add_lazy(graph.matrices.at(Y), M.matrices.at(Z), X, lazy_result);
+            }
         }
     }
     
+    /**
+     * Простые правила A → B (A и B - нетерминалы)
+     * 
+     * КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: добавлено в основной цикл!
+     * В Python это есть в new_front.iadd_by_symbol(lhs, front[rhs])
+     * 
+     * Семантика: A = B (полное равенство)
+     * В инкрементальном алгоритме: delta[A] += delta[B]
+     */
+    void apply_simple_rules_incremental_lazy(const CFMatrixRepresentation& delta,
+                                             LazyCFMatrixRepresentation& lazy_result) {
+        for (const auto& rule : grammar.simple_rules_) {
+            symbol A = std::get<0>(rule);
+            symbol B = std::get<1>(rule);
+            
+            if (delta.has(B)) {
+                // Добавляем delta[B] к A
+                cuBool_Matrix dup;
+                cuBool_Matrix_Duplicate(delta.matrices.at(B), &dup);
+                lazy_result.add(A, dup);
+                cuBool_Matrix_Free(dup);
+            }
+        }
+    }
+    
+    /**
+     * Double-terminal правила: A → ab (оба терминалы)
+     * Вычисляются один раз в начале
+     */
     void apply_double_terminal_lazy(LazyCFMatrixRepresentation& lazy_result) {
         for (const auto& rule : double_terminal_rules) {
             symbol X = std::get<0>(rule);
@@ -229,6 +281,17 @@ public:
         classify_rules();
         
         // Вычисляем параметр b для lazy addition
+        // По умолчанию: b = n^C1, где C1 = lazy_add_exponent
+        b_factor = std::pow(static_cast<double>(matrix_size), config.lazy_add_exponent);
+    }
+    
+    FullyOptimizedAlgo(const std::string& grammar_path, const std::string& graph_path,
+                      const OptimizationConfig& cfg = OptimizationConfig()) {
+        grammar = cnf_grammar(grammar_path);
+        graph = label_decomposed_graph(graph_path);
+        matrix_size = graph.matrix_size;
+        config = cfg;
+        classify_rules();
         b_factor = std::pow(static_cast<double>(matrix_size), config.lazy_add_exponent);
     }
     
@@ -246,7 +309,7 @@ public:
         // Инициализация ΔM
         CFMatrixRepresentation delta(matrix_size);
         
-        // Простые правила
+        // Простые правила (инициализация)
         for (const auto& rule : grammar.simple_rules_) {
             symbol lhs = std::get<0>(rule);
             symbol rhs = std::get<1>(rule);
@@ -289,7 +352,7 @@ public:
             d_eps = temp;
         }
         
-        // Double-terminal правила
+        // Double-terminal правила (вычисляются один раз)
         if (config.use_lazy_add) {
             LazyCFMatrixRepresentation lazy_init(matrix_size, b_factor);
             apply_double_terminal_lazy(lazy_init);
@@ -306,7 +369,7 @@ public:
                 d_label = temp;
             }
         } else {
-            // Без lazy add - просто применяем double terminal к delta напрямую
+            // Без lazy add
             for (const auto& rule : double_terminal_rules) {
                 symbol X = std::get<0>(rule);
                 symbol Y = std::get<1>(rule);
@@ -333,10 +396,18 @@ public:
             }
         }
         
+        cuBool_Index initial_nvals = 0;
+        for (const auto& [label, matrix] : delta.matrices) {
+            cuBool_Index nvals;
+            cuBool_Matrix_Nvals(matrix, &nvals);
+            initial_nvals += nvals;
+        }
+        std::cout << "Initial ΔM: " << initial_nvals << " edges" << std::endl;
+        
         // M ← ∅
         CFMatrixRepresentation M(matrix_size);
         
-        // Основной цикл
+        // Основной цикл (Алгоритм 4)
         std::cout << "\n=== Main loop ===" << std::endl;
         stats.iterations = 0;
         
@@ -365,6 +436,7 @@ public:
             apply_cnf_incremental_lazy(M, delta, lazy_delta_tmp);
             apply_extended_left_incremental_lazy(M, delta, lazy_delta_tmp);
             apply_extended_right_incremental_lazy(M, delta, lazy_delta_tmp);
+            apply_simple_rules_incremental_lazy(delta, lazy_delta_tmp);  // ИСПРАВЛЕНИЕ: добавлено!
             
             // M ← M ∪ ΔM
             M.union_with(delta);
@@ -405,74 +477,38 @@ public:
         }
         
         auto end_time = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double> elapsed = end_time - start_time;
-        stats.total_time_seconds = elapsed.count();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+            end_time - start_time
+        );
         
-        std::cout << "\n=== Converged ===" << std::endl;
-        if (config.enable_stats) {
-            stats.print();
-        }
+        std::cout << "\n=== Results ===" << std::endl;
+        std::cout << "Iterations: " << stats.iterations << std::endl;
+        std::cout << "Total time: " << duration.count() << " ms" << std::endl;
+        std::cout << "Multiplications: " << stats.total_multiplications << std::endl;
+        std::cout << "Skipped (trivial): " << stats.skipped_multiplications << std::endl;
+        std::cout << "Lazy additions: " << stats.lazy_additions << std::endl;
+        std::cout << "Concrete additions: " << stats.concrete_additions << std::endl;
         
-        // Возврат результата
-        std::cout << "\n=== Checking result ===" << std::endl;
-        std::cout << "Start nonterminal: '" << grammar.start_nonterm_.label_ << "'" << std::endl;
-        std::cout << "M has " << M.matrices.size() << " nonterminals" << std::endl;
-        
-        // Выведем первые нетерминалы в M
-        std::cout << "Nonterminals in M: ";
-        int count = 0;
-        for (const auto& [label, matrix] : M.matrices) {
-            cuBool_Index nvals;
-            cuBool_Matrix_Nvals(matrix, &nvals);
-            if (nvals > 0) {
-                std::cout << label << "(" << nvals << ") ";
-                count++;
-                if (count > 10) {
-                    std::cout << "...";
-                    break;
-                }
-            }
-        }
-        std::cout << std::endl;
-        
-        if (M.has(grammar.start_nonterm_)) {
+        // Получаем результат для стартового нетерминала
+        if (M.has(grammar.start_nonterm_.label_)) {
             cuBool_Matrix result;
-            cuBool_Matrix_Duplicate(M.matrices.at(grammar.start_nonterm_), &result);
+            cuBool_Matrix_Duplicate(M.matrices.at(grammar.start_nonterm_.label_), &result);
             
             cuBool_Index result_nvals;
             cuBool_Matrix_Nvals(result, &result_nvals);
-            std::cout << "Result: " << result_nvals << " reachable pairs" << std::endl;
+            std::cout << "Result edges: " << result_nvals << std::endl;
             
             return result;
         } else {
             cuBool_Matrix empty;
             cuBool_Matrix_New(&empty, matrix_size, matrix_size);
             cuBool_Matrix_Build(empty, nullptr, nullptr, 0, CUBOOL_HINT_NO);
-            std::cout << "Warning: Start nonterminal '" << grammar.start_nonterm_.label_ 
-                      << "' not found in result!" << std::endl;
+            std::cout << "Result edges: 0" << std::endl;
             return empty;
         }
     }
     
-    const AlgoStats& get_stats() const {
+    AlgoStats get_stats() const {
         return stats;
-    }
-    
-    // Автоматический выбор оптимизаций
-    cuBool_Matrix solve_auto() {
-        // Анализируем входные данные
-        size_t num_rules = grammar.complex_rules_.size();
-        
-        // Автоматически настраиваем конфигурацию
-        config = OptimizationConfig::automatic(matrix_size, num_rules);
-        config.enable_stats = true;
-        
-        std::cout << "Auto-selected configuration for n=" << matrix_size 
-                  << ", rules=" << num_rules << std::endl;
-        
-        // Пересчитываем b_factor с новой конфигурацией
-        b_factor = std::pow(static_cast<double>(matrix_size), config.lazy_add_exponent);
-        
-        return solve();
     }
 };

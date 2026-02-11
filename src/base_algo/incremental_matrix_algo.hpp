@@ -24,6 +24,10 @@
  *    5. M ← M ∪ ΔM
  *    6. ΔM ← ΔMₜₘₚ ∪ (ΔM ·Gr M)
  *    7. ΔM ← ΔM \ M
+ * 
+ * ИСПРАВЛЕНИЯ:
+ * - Убраны else if в apply_cnf (все случаи независимы)
+ * - Простые правила применяются только к delta
  */
 class IncrementalMatrixAlgo {
 private:
@@ -75,14 +79,19 @@ private:
         }
     }
     
-    // Проверка, пуста ли матрица (для оптимизации тривиальных операций)
     bool is_empty(cuBool_Matrix matrix) {
+        if (!config.use_trivial_checks) return false;
+        
         cuBool_Index nvals;
         cuBool_Matrix_Nvals(matrix, &nvals);
         return nvals == 0;
     }
     
-    // M ·Gr ΔM для CNF правил
+    /**
+     * M ·Gr ΔM для CNF правил
+     * 
+     * КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: все три случая независимы (не else if)!
+     */
     void apply_cnf_rules_incremental(const CFMatrixRepresentation& M,
                                      const CFMatrixRepresentation& delta,
                                      CFMatrixRepresentation& result) {
@@ -91,89 +100,86 @@ private:
             symbol Y = std::get<1>(rule);
             symbol Z = std::get<2>(rule);
             
-            // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: добавлен случай delta[Y] · delta[Z]!
-            // Иначе правила типа V2_V3 ← V2 · V3 не применятся, если оба в delta
-            
-            // Случай 0: delta[Y] · delta[Z] (оба новые)
+            // Случай 1: delta[Y] · delta[Z] (оба новые)
             if (delta.has(Y) && delta.has(Z)) {
                 if (config.use_trivial_checks && 
                     (is_empty(delta.matrices.at(Y)) || is_empty(delta.matrices.at(Z)))) {
                     stats.skipped_multiplications++;
-                    continue;
+                } else {
+                    cuBool_Matrix product;
+                    cuBool_Matrix_New(&product, matrix_size, matrix_size);
+                    cuBool_MxM(product, delta.matrices.at(Y), delta.matrices.at(Z), CUBOOL_HINT_NO);
+                    stats.total_multiplications++;
+                    
+                    cuBool_Index nvals;
+                    cuBool_Matrix_Nvals(product, &nvals);
+                    
+                    if (nvals > 0) {
+                        cuBool_Matrix& result_x = result.get_or_create(X);
+                        cuBool_Matrix temp;
+                        cuBool_Matrix_New(&temp, matrix_size, matrix_size);
+                        cuBool_Matrix_EWiseAdd(temp, result_x, product, CUBOOL_HINT_NO);
+                        cuBool_Matrix_Free(result_x);
+                        result_x = temp;
+                    }
+                    
+                    cuBool_Matrix_Free(product);
                 }
-                
-                cuBool_Matrix product;
-                cuBool_Matrix_New(&product, matrix_size, matrix_size);
-                cuBool_MxM(product, delta.matrices.at(Y), delta.matrices.at(Z), CUBOOL_HINT_NO);
-                stats.total_multiplications++;
-                
-                cuBool_Index nvals;
-                cuBool_Matrix_Nvals(product, &nvals);
-                
-                if (nvals > 0) {
-                    cuBool_Matrix& result_x = result.get_or_create(X);
-                    cuBool_Matrix temp;
-                    cuBool_Matrix_New(&temp, matrix_size, matrix_size);
-                    cuBool_Matrix_EWiseAdd(temp, result_x, product, CUBOOL_HINT_NO);
-                    cuBool_Matrix_Free(result_x);
-                    result_x = temp;
-                }
-                
-                cuBool_Matrix_Free(product);
             }
-            // Случай 1: M[Y] · delta[Z] (Y существует, Z новый, но не оба в delta)
-            else if (M.has(Y) && delta.has(Z)) {
+            
+            // Случай 2: M[Y] · delta[Z] (Y существует, Z новый)
+            // НЕ else if! Независимый случай
+            if (M.has(Y) && delta.has(Z)) {
                 if (config.use_trivial_checks && 
                     (is_empty(M.matrices.at(Y)) || is_empty(delta.matrices.at(Z)))) {
                     stats.skipped_multiplications++;
-                    continue;
+                } else {
+                    cuBool_Matrix product;
+                    cuBool_Matrix_New(&product, matrix_size, matrix_size);
+                    cuBool_MxM(product, M.matrices.at(Y), delta.matrices.at(Z), CUBOOL_HINT_NO);
+                    stats.total_multiplications++;
+                    
+                    cuBool_Index nvals;
+                    cuBool_Matrix_Nvals(product, &nvals);
+                    
+                    if (nvals > 0) {
+                        cuBool_Matrix& result_x = result.get_or_create(X);
+                        cuBool_Matrix temp;
+                        cuBool_Matrix_New(&temp, matrix_size, matrix_size);
+                        cuBool_Matrix_EWiseAdd(temp, result_x, product, CUBOOL_HINT_NO);
+                        cuBool_Matrix_Free(result_x);
+                        result_x = temp;
+                    }
+                    
+                    cuBool_Matrix_Free(product);
                 }
-                
-                cuBool_Matrix product;
-                cuBool_Matrix_New(&product, matrix_size, matrix_size);
-                cuBool_MxM(product, M.matrices.at(Y), delta.matrices.at(Z), CUBOOL_HINT_NO);
-                stats.total_multiplications++;
-                
-                cuBool_Index nvals;
-                cuBool_Matrix_Nvals(product, &nvals);
-                
-                if (nvals > 0) {
-                    cuBool_Matrix& result_x = result.get_or_create(X);
-                    cuBool_Matrix temp;
-                    cuBool_Matrix_New(&temp, matrix_size, matrix_size);
-                    cuBool_Matrix_EWiseAdd(temp, result_x, product, CUBOOL_HINT_NO);
-                    cuBool_Matrix_Free(result_x);
-                    result_x = temp;
-                }
-                
-                cuBool_Matrix_Free(product);
             }
-            // Случай 2: delta[Y] · M[Z] (Y новый, Z существует, но не оба в delta)
-            else if (delta.has(Y) && M.has(Z)) {
+            
+            // Случай 3: delta[Y] · M[Z] (Y новый, Z существует)
+            if (delta.has(Y) && M.has(Z)) {
                 if (config.use_trivial_checks && 
                     (is_empty(delta.matrices.at(Y)) || is_empty(M.matrices.at(Z)))) {
                     stats.skipped_multiplications++;
-                    continue;
+                } else {
+                    cuBool_Matrix product;
+                    cuBool_Matrix_New(&product, matrix_size, matrix_size);
+                    cuBool_MxM(product, delta.matrices.at(Y), M.matrices.at(Z), CUBOOL_HINT_NO);
+                    stats.total_multiplications++;
+                    
+                    cuBool_Index nvals;
+                    cuBool_Matrix_Nvals(product, &nvals);
+                    
+                    if (nvals > 0) {
+                        cuBool_Matrix& result_x = result.get_or_create(X);
+                        cuBool_Matrix temp;
+                        cuBool_Matrix_New(&temp, matrix_size, matrix_size);
+                        cuBool_Matrix_EWiseAdd(temp, result_x, product, CUBOOL_HINT_NO);
+                        cuBool_Matrix_Free(result_x);
+                        result_x = temp;
+                    }
+                    
+                    cuBool_Matrix_Free(product);
                 }
-                
-                cuBool_Matrix product;
-                cuBool_Matrix_New(&product, matrix_size, matrix_size);
-                cuBool_MxM(product, delta.matrices.at(Y), M.matrices.at(Z), CUBOOL_HINT_NO);
-                stats.total_multiplications++;
-                
-                cuBool_Index nvals;
-                cuBool_Matrix_Nvals(product, &nvals);
-                
-                if (nvals > 0) {
-                    cuBool_Matrix& result_x = result.get_or_create(X);
-                    cuBool_Matrix temp;
-                    cuBool_Matrix_New(&temp, matrix_size, matrix_size);
-                    cuBool_Matrix_EWiseAdd(temp, result_x, product, CUBOOL_HINT_NO);
-                    cuBool_Matrix_Free(result_x);
-                    result_x = temp;
-                }
-                
-                cuBool_Matrix_Free(product);
             }
         }
     }
@@ -184,16 +190,12 @@ private:
                                         CFMatrixRepresentation& result) {
         for (const auto& rule : extended_left_rules) {
             symbol X = std::get<0>(rule);
-            symbol Y = std::get<1>(rule); // нетерминал
-            symbol Z = std::get<2>(rule); // терминал
+            symbol Y = std::get<1>(rule);  // нетерминал
+            symbol Z = std::get<2>(rule);  // терминал
             
             if (graph.matrices.find(Z) == graph.matrices.end()) continue;
-            if (config.use_trivial_checks && is_empty(graph.matrices.at(Z))) {
-                stats.skipped_multiplications++;
-                continue;
-            }
             
-            // delta[Y] · graph[Z] (новые элементы)
+            // delta[Y] · graph[Z]
             if (delta.has(Y)) {
                 if (config.use_trivial_checks && is_empty(delta.matrices.at(Y))) {
                     stats.skipped_multiplications++;
@@ -220,9 +222,8 @@ private:
                 cuBool_Matrix_Free(product);
             }
             
-            // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: M[Y] · graph[Z] (существующие элементы)
-            // Применяем только если Y НЕ в delta (чтобы не дублировать)
-            if (!delta.has(Y) && M.has(Y)) {
+            // M[Y] · graph[Z]
+            if (M.has(Y)) {
                 if (config.use_trivial_checks && is_empty(M.matrices.at(Y))) {
                     stats.skipped_multiplications++;
                     continue;
@@ -252,20 +253,16 @@ private:
     
     // Extended right: A → aB
     void apply_extended_right_incremental(const CFMatrixRepresentation& M,
-                                          const CFMatrixRepresentation& delta,
-                                          CFMatrixRepresentation& result) {
+                                         const CFMatrixRepresentation& delta,
+                                         CFMatrixRepresentation& result) {
         for (const auto& rule : extended_right_rules) {
             symbol X = std::get<0>(rule);
-            symbol Y = std::get<1>(rule); // терминал
-            symbol Z = std::get<2>(rule); // нетерминал
+            symbol Y = std::get<1>(rule);  // терминал
+            symbol Z = std::get<2>(rule);  // нетерминал
             
             if (graph.matrices.find(Y) == graph.matrices.end()) continue;
-            if (config.use_trivial_checks && is_empty(graph.matrices.at(Y))) {
-                stats.skipped_multiplications++;
-                continue;
-            }
             
-            // graph[Y] · delta[Z] (новые элементы)
+            // graph[Y] · delta[Z]
             if (delta.has(Z)) {
                 if (config.use_trivial_checks && is_empty(delta.matrices.at(Z))) {
                     stats.skipped_multiplications++;
@@ -292,9 +289,8 @@ private:
                 cuBool_Matrix_Free(product);
             }
             
-            // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: graph[Y] · M[Z] (существующие элементы)
-            // Применяем только если Z НЕ в delta (чтобы не дублировать)
-            if (!delta.has(Z) && M.has(Z)) {
+            // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: graph[Y] · M[Z] тоже!
+            if (M.has(Z)) {
                 if (config.use_trivial_checks && is_empty(M.matrices.at(Z))) {
                     stats.skipped_multiplications++;
                     continue;
@@ -322,35 +318,30 @@ private:
         }
     }
     
-    // ИСПРАВЛЕНИЕ: Простые правила A → B применяются ТОЛЬКО к delta!
-    // Семантика: A = B (полное равенство)
-    // В инкрементальном алгоритме: delta[A] = delta[B] (новые в A = новые в B)
+    /**
+     * Простые правила A → B
+     * ИСПРАВЛЕНИЕ: применяются ТОЛЬКО к delta!
+     * Семантика: delta[A] = delta[B] (новые в A = новые в B)
+     */
     void apply_simple_rules_incremental(const CFMatrixRepresentation& delta,
                                         CFMatrixRepresentation& result) {
         for (const auto& rule : grammar.simple_rules_) {
             symbol A = std::get<0>(rule);
             symbol B = std::get<1>(rule);
             
-            // Копируем ТОЛЬКО delta[B] → result[A]
-            // Старые элементы B уже в M[A] из предыдущих итераций!
             if (delta.has(B)) {
-                cuBool_Index nvals;
-                cuBool_Matrix_Nvals(delta.matrices.at(B), &nvals);
-                
-                if (nvals > 0) {
-                    cuBool_Matrix& result_a = result.get_or_create(A);
-                    cuBool_Matrix temp;
-                    cuBool_Matrix_New(&temp, matrix_size, matrix_size);
-                    cuBool_Matrix_EWiseAdd(temp, result_a, delta.matrices.at(B), CUBOOL_HINT_NO);
-                    cuBool_Matrix_Free(result_a);
-                    result_a = temp;
-                }
+                cuBool_Matrix& result_a = result.get_or_create(A);
+                cuBool_Matrix temp;
+                cuBool_Matrix_New(&temp, matrix_size, matrix_size);
+                cuBool_Matrix_EWiseAdd(temp, result_a, delta.matrices.at(B), CUBOOL_HINT_NO);
+                cuBool_Matrix_Free(result_a);
+                result_a = temp;
             }
         }
     }
     
-    // Double-terminal: A → ab
-    void apply_double_terminal(CFMatrixRepresentation& result) {
+    // Double-terminal правила (вычисляются один раз)
+    void apply_double_terminal(CFMatrixRepresentation& delta) {
         for (const auto& rule : double_terminal_rules) {
             symbol X = std::get<0>(rule);
             symbol Y = std::get<1>(rule);
@@ -374,12 +365,12 @@ private:
             cuBool_Matrix_Nvals(product, &nvals);
             
             if (nvals > 0) {
-                cuBool_Matrix& result_x = result.get_or_create(X);
+                cuBool_Matrix& d_x = delta.get_or_create(X);
                 cuBool_Matrix temp;
                 cuBool_Matrix_New(&temp, matrix_size, matrix_size);
-                cuBool_Matrix_EWiseAdd(temp, result_x, product, CUBOOL_HINT_NO);
-                cuBool_Matrix_Free(result_x);
-                result_x = temp;
+                cuBool_Matrix_EWiseAdd(temp, d_x, product, CUBOOL_HINT_NO);
+                cuBool_Matrix_Free(d_x);
+                d_x = temp;
             }
             
             cuBool_Matrix_Free(product);
@@ -387,10 +378,18 @@ private:
     }
 
 public:
-    IncrementalMatrixAlgo(const cnf_grammar& gr, 
-                         const label_decomposed_graph& g,
+    IncrementalMatrixAlgo(const cnf_grammar& gr, const label_decomposed_graph& g,
                          const OptimizationConfig& cfg = OptimizationConfig())
         : grammar(gr), graph(g), matrix_size(g.matrix_size), config(cfg) {
+        classify_rules();
+    }
+    
+    IncrementalMatrixAlgo(const std::string& grammar_path, const std::string& graph_path,
+                         const OptimizationConfig& cfg = OptimizationConfig()) {
+        grammar = cnf_grammar(grammar_path);
+        graph = label_decomposed_graph(graph_path);
+        matrix_size = graph.matrix_size;
+        config = cfg;
         classify_rules();
     }
     
@@ -401,10 +400,30 @@ public:
         std::cout << config.to_string() << std::endl;
         std::cout << "Matrix size: " << matrix_size << std::endl;
         
-        // Инициализация ΔM из графа
+        // Инициализация ΔM
         CFMatrixRepresentation delta(matrix_size);
         
-        // Эпсилон-правила: A → ε (создаём СНАЧАЛА, до простых правил!)
+        // Простые правила
+        for (const auto& rule : grammar.simple_rules_) {
+            symbol lhs = std::get<0>(rule);
+            symbol rhs = std::get<1>(rule);
+            
+            if (graph.matrices.find(rhs) != graph.matrices.end()) {
+                cuBool_Index graph_nvals;
+                cuBool_Matrix_Nvals(graph.matrices.at(rhs), &graph_nvals);
+                
+                if (graph_nvals > 0) {
+                    cuBool_Matrix& d_lhs = delta.get_or_create(lhs);
+                    cuBool_Matrix temp;
+                    cuBool_Matrix_New(&temp, matrix_size, matrix_size);
+                    cuBool_Matrix_EWiseAdd(temp, d_lhs, graph.matrices.at(rhs), CUBOOL_HINT_NO);
+                    cuBool_Matrix_Free(d_lhs);
+                    d_lhs = temp;
+                }
+            }
+        }
+        
+        // Эпсилон-правила
         std::vector<cuBool_Index> diag_rows, diag_cols;
         for (size_t i = 0; i < matrix_size; i++) {
             diag_rows.push_back(i);
@@ -426,44 +445,7 @@ public:
             d_eps = temp;
         }
         
-        // Простые правила: A → B (применяем в инициализации)
-        // ВАЖНО: применяем только к тому что уже есть в delta (epsilon правила и граф)
-        for (const auto& rule : grammar.simple_rules_) {
-            symbol lhs = std::get<0>(rule);
-            symbol rhs = std::get<1>(rule);
-            
-            // Случай 1: B - терминал из графа
-            if (graph.matrices.find(rhs) != graph.matrices.end()) {
-                cuBool_Index graph_nvals;
-                cuBool_Matrix_Nvals(graph.matrices.at(rhs), &graph_nvals);
-                
-                if (graph_nvals > 0) {
-                    cuBool_Matrix& d_lhs = delta.get_or_create(lhs);
-                    cuBool_Matrix temp;
-                    cuBool_Matrix_New(&temp, matrix_size, matrix_size);
-                    cuBool_Matrix_EWiseAdd(temp, d_lhs, graph.matrices.at(rhs), CUBOOL_HINT_NO);
-                    cuBool_Matrix_Free(d_lhs);
-                    d_lhs = temp;
-                }
-            }
-            
-            // Случай 2: B - нетерминал (уже в delta из epsilon)
-            if (delta.has(rhs)) {
-                cuBool_Index nvals;
-                cuBool_Matrix_Nvals(delta.matrices.at(rhs), &nvals);
-                
-                if (nvals > 0) {
-                    cuBool_Matrix& d_lhs = delta.get_or_create(lhs);
-                    cuBool_Matrix temp;
-                    cuBool_Matrix_New(&temp, matrix_size, matrix_size);
-                    cuBool_Matrix_EWiseAdd(temp, d_lhs, delta.matrices.at(rhs), CUBOOL_HINT_NO);
-                    cuBool_Matrix_Free(d_lhs);
-                    d_lhs = temp;
-                }
-            }
-        }
-        
-        // Double-terminal правила (вычисляются один раз)
+        // Double-terminal правила
         apply_double_terminal(delta);
         
         cuBool_Index initial_nvals = 0;
@@ -484,7 +466,6 @@ public:
         while (true) {
             stats.iterations++;
             
-            // Проверка: ΔM пустой?
             cuBool_Index delta_nvals = 0;
             for (const auto& [label, matrix] : delta.matrices) {
                 cuBool_Index nvals;
@@ -505,7 +486,7 @@ public:
             apply_cnf_rules_incremental(M, delta, delta_tmp);
             apply_extended_left_incremental(M, delta, delta_tmp);
             apply_extended_right_incremental(M, delta, delta_tmp);
-            apply_simple_rules_incremental(delta, delta_tmp);  // ← Только delta!
+            apply_simple_rules_incremental(delta, delta_tmp);
             
             // M ← M ∪ ΔM
             M.union_with(delta);
@@ -513,7 +494,6 @@ public:
             // ΔM ← ΔMₜₘₚ \ M
             CFMatrixRepresentation* diff = delta_tmp.difference(M);
             
-            // Очищаем старый delta и копируем новый
             for (auto& [label, matrix] : delta.matrices) {
                 cuBool_Matrix_Free(matrix);
             }
@@ -542,56 +522,35 @@ public:
         }
         
         auto end_time = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double> elapsed = end_time - start_time;
-        stats.total_time_seconds = elapsed.count();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+            end_time - start_time
+        );
         
-        std::cout << "\n=== Converged ===" << std::endl;
-        if (config.enable_stats) {
-            stats.print();
-        }
+        std::cout << "\n=== Results ===" << std::endl;
+        std::cout << "Iterations: " << stats.iterations << std::endl;
+        std::cout << "Total time: " << duration.count() << " ms" << std::endl;
+        std::cout << "Multiplications: " << stats.total_multiplications << std::endl;
+        std::cout << "Skipped (trivial): " << stats.skipped_multiplications << std::endl;
         
-        // Возврат результата
-        std::cout << "\n=== Checking result ===" << std::endl;
-        std::cout << "Start nonterminal: '" << grammar.start_nonterm_.label_ << "'" << std::endl;
-        std::cout << "M has " << M.matrices.size() << " nonterminals" << std::endl;
-        
-        // Выведем все нетерминалы в M
-        std::cout << "Nonterminals in M: ";
-        int count = 0;
-        for (const auto& [label, matrix] : M.matrices) {
-            cuBool_Index nvals;
-            cuBool_Matrix_Nvals(matrix, &nvals);
-            if (nvals > 0) {
-                std::cout << label << "(" << nvals << ") ";
-                count++;
-                if (count > 10) {
-                    std::cout << "...";
-                    break;
-                }
-            }
-        }
-        std::cout << std::endl;
-        
-        if (M.has(grammar.start_nonterm_)) {
+        if (M.has(grammar.start_nonterm_.label_)) {
             cuBool_Matrix result;
-            cuBool_Matrix_Duplicate(M.matrices.at(grammar.start_nonterm_), &result);
+            cuBool_Matrix_Duplicate(M.matrices.at(grammar.start_nonterm_.label_), &result);
             
             cuBool_Index result_nvals;
             cuBool_Matrix_Nvals(result, &result_nvals);
-            std::cout << "Result: " << result_nvals << " reachable pairs" << std::endl;
+            std::cout << "Result edges: " << result_nvals << std::endl;
             
             return result;
         } else {
             cuBool_Matrix empty;
             cuBool_Matrix_New(&empty, matrix_size, matrix_size);
             cuBool_Matrix_Build(empty, nullptr, nullptr, 0, CUBOOL_HINT_NO);
-            std::cout << "Warning: Start nonterminal '" << grammar.start_nonterm_.label_ 
-                      << "' not found in result!" << std::endl;
+            std::cout << "Result edges: 0" << std::endl;
             return empty;
         }
     }
     
-    const AlgoStats& get_stats() const {
+    AlgoStats get_stats() const {
         return stats;
     }
 };

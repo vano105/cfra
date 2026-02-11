@@ -247,11 +247,21 @@ CFReachabilityAlgoFactory::AlgoType parse_algo_type(const std::string& type) {
 }
 
 int main(int argc, char* argv[]) {
+  /*
+  argv[0] = "./cfra";
+  argv[1] = "--algo";
+  argv[2] = "base";
+  argv[3] = "-graph";
+  argv[4] = "../test_data/indexed_an_ab/graph.txt";
+  argv[5] = "--grammar";
+  argv[6] = "../test_data/indexed_an_ab/grammar.cnf";
+  argc = 7;
+  */
   if (argc == 1) {
     // По умолчанию запускаем тесты с автоматическим выбором алгоритма
     std::cout << "Running tests with automatic algorithm selection..." << std::endl;
     std::cout << "(Use --help to see all options)\n" << std::endl;
-    return test("../test_data/", CFReachabilityAlgoFactory::AlgoType::AUTO) ? 0 : 1;
+    return test("../tkkkest_data/", CFReachabilityAlgoFactory::AlgoType::AUTO) ? 0 : 1;
   }
   
   std::string mode = argv[1];

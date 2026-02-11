@@ -1,0 +1,2 @@
+0 1 alloc
+1 2 assign

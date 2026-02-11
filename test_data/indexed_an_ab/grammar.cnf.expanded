@@ -1,0 +1,11 @@
+Sb_i_0 S b_i_0
+Sb_i_1 S b_i_1
+Sb_i_2 S b_i_2
+S a_i_0 Sb_i_0
+S a_i_1 Sb_i_1
+S a_i_2 Sb_i_2
+S a_i_0 b_i_0
+S a_i_1 b_i_1
+S a_i_2 b_i_2
+Count:
+S
