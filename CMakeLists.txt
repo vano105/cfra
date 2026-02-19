@@ -11,4 +11,5 @@ target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC cuBool/cubool/include/cu
 target_link_directories(${CMAKE_PROJECT_NAME} PUBLIC build/cuBool/cubool)
 target_link_libraries(${CMAKE_PROJECT_NAME} PUBLIC cubool)
 
-target_sources(${CMAKE_PROJECT_NAME} PUBLIC src/main.cpp src/cnf_grammar/cnf_grammar.hpp src/base_algo/base_matrix_algo.hpp src/label_decomposed_graph/label_decomposed_graph.hpp)
+target_sources(${CMAKE_PROJECT_NAME} PUBLIC src/main.cpp src/grammar/grammar.cpp src/graph/graph.cpp
+        src/base_algo/base_algo.cpp src/matrix_store/matrix_store.cpp src/incremental_algo/incremental_algo.cpp)
