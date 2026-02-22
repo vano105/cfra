@@ -15,6 +15,15 @@ public:
     MatrixStore(const MatrixStore&) = delete;
     MatrixStore& operator=(const MatrixStore&) = delete;
 
+    MatrixStore(MatrixStore&& o) noexcept;
+    MatrixStore& operator=(MatrixStore&& o) noexcept;
+
+    // Обмен содержимым двух хранилищ (O(1), без копирования матриц)
+    void swap(MatrixStore& other) noexcept;
+
+    // Освободить все матрицы и очистить хранилище
+    void clear();
+
     cuBool_Matrix get(const std::string& sym) const;
 
     cuBool_Matrix ensure(const std::string& sym);

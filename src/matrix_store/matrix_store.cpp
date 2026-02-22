@@ -1,9 +1,34 @@
 #include "matrix_store.hpp"
 #include "../common.hpp"
 
+MatrixStore::MatrixStore(MatrixStore&& o) noexcept : n_(o.n_), map_(std::move(o.map_)) {
+    o.map_.clear();
+}
+
+MatrixStore& MatrixStore::operator=(MatrixStore&& o) noexcept {
+    if (this != &o) {
+        clear();
+        n_ = o.n_;
+        map_ = std::move(o.map_);
+        o.map_.clear();
+    }
+    return *this;
+}
+
 MatrixStore::~MatrixStore() {
     for (auto& [_, m] : map_)
         if (m) cuBool_Matrix_Free(m);
+}
+
+void MatrixStore::swap(MatrixStore& other) noexcept {
+    std::swap(n_, other.n_);
+    map_.swap(other.map_);
+}
+
+void MatrixStore::clear() {
+    for (auto& [_, m] : map_)
+        if (m) cuBool_Matrix_Free(m);
+    map_.clear();
 }
 
 // Получить матрицу по символу (nullptr если не существует)
