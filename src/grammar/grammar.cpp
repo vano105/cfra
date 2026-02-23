@@ -68,12 +68,11 @@ TemplateGrammar TemplateGrammar::load(const std::string &path) {
 }
 
 CnfGrammar CnfGrammar::expand(const TemplateGrammar& tmpl,
-                               const std::set<std::string>& graph_labels)
+                              const std::set<std::string>& graph_labels)
 {
     CnfGrammar result;
     result.start_symbol_ = tmpl.start_symbol();
 
-    // --- Шаг 1: собрать все шаблонные символы из грамматики ---
     std::set<std::string> template_syms;
     for (auto& sym : tmpl.epsilon_rules())
         if (is_template(sym)) template_syms.insert(sym);
@@ -87,33 +86,15 @@ CnfGrammar CnfGrammar::expand(const TemplateGrammar& tmpl,
         if (is_template(c)) template_syms.insert(c);
     }
 
-    // --- Шаг 2: найти шаблонные терминалы ---
-    // Шаблонный терминал — шаблонный символ, чья база встречается
-    // как префикс метки графа. Например: "load_i" → "load_i_409".
     std::set<std::string> template_terms;
+    std::set<int> indices;
     for (auto& ts : template_syms) {
-        std::string prefix = ts.substr(0, ts.size() - 1);  // "load_i" → "load_i"... нет, "load_i" - 1 char = "load_"
-        // ts заканчивается на "_i", нам нужен префикс ts + "_" без последнего "i"
-        // Проще: ищем метки вида ts + "_" + число
-        // ts = "load_i", prefix для поиска = "load_i_"
         std::string search_prefix = ts + "_";
         for (auto& label : graph_labels) {
             if (label.size() > search_prefix.size() &&
                 label.substr(0, search_prefix.size()) == search_prefix) {
                 template_terms.insert(ts);
-                break;
-            }
-        }
-    }
-
-    // --- Шаг 3: собрать все уникальные индексы ---
-    std::set<int> indices;
-    for (auto& label : graph_labels) {
-        for (auto& tt : template_terms) {
-            std::string prefix = tt + "_";
-            if (label.size() > prefix.size() &&
-                label.substr(0, prefix.size()) == prefix) {
-                std::string idx_str = label.substr(prefix.size());
+                std::string idx_str = label.substr(search_prefix.size());
                 try {
                     int idx = std::stoi(idx_str);
                     if (std::to_string(idx) == idx_str)
@@ -123,23 +104,14 @@ CnfGrammar CnfGrammar::expand(const TemplateGrammar& tmpl,
         }
     }
 
-    std::cout << "Раскрытие шаблонов: " << template_syms.size() << " шаблонных символов, "
-              << template_terms.size() << " шаблонных терминалов, "
-              << indices.size() << " уникальных индексов\n";
-
-    // --- Шаг 4: раскрыть правила ---
-
-    // Лямбда: подставить индекс в символ (если шаблонный)
     auto expand_sym = [](const std::string& sym, int idx) -> std::string {
         return is_template(sym) ? instantiate(sym, idx) : sym;
     };
 
-    // Лямбда: есть ли в правиле хотя бы один шаблонный символ?
     auto has_template = [](const auto&... syms) -> bool {
         return (is_template(syms) || ...);
     };
 
-    // Раскрытие ε-правил
     for (auto& sym : tmpl.epsilon_rules()) {
         if (is_template(sym)) {
             for (int idx : indices)
@@ -149,7 +121,6 @@ CnfGrammar CnfGrammar::expand(const TemplateGrammar& tmpl,
         }
     }
 
-    // Раскрытие двухтокенных правил (классификация: терминальное или цепное)
     for (auto& [a, x] : tmpl.two_token_rules()) {
         if (has_template(a, x)) {
             for (int idx : indices) {
@@ -168,7 +139,6 @@ CnfGrammar CnfGrammar::expand(const TemplateGrammar& tmpl,
         }
     }
 
-    // Раскрытие комплексных правил
     for (auto& [a, b, c] : tmpl.complex_rules()) {
         if (has_template(a, b, c)) {
             for (int idx : indices) {
@@ -182,7 +152,6 @@ CnfGrammar CnfGrammar::expand(const TemplateGrammar& tmpl,
         }
     }
 
-    // --- Шаг 5: собрать все нетерминальные символы ---
     for (auto& s : result.epsilon_rules_) result.nonterminals_.insert(s);
     for (auto& [a, _] : result.terminal_rules_) result.nonterminals_.insert(a);
     for (auto& [a, _] : result.simple_rules_) result.nonterminals_.insert(a);

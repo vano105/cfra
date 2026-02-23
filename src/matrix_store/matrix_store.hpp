@@ -9,7 +9,6 @@
 class MatrixStore {
 public:
     explicit MatrixStore(cuBool_Index n) : n_(n) {}
-
     ~MatrixStore();
 
     MatrixStore(const MatrixStore&) = delete;
@@ -18,10 +17,8 @@ public:
     MatrixStore(MatrixStore&& o) noexcept;
     MatrixStore& operator=(MatrixStore&& o) noexcept;
 
-    // Обмен содержимым двух хранилищ (O(1), без копирования матриц)
     void swap(MatrixStore& other) noexcept;
 
-    // Освободить все матрицы и очистить хранилище
     void clear();
 
     cuBool_Matrix get(const std::string& sym) const;
