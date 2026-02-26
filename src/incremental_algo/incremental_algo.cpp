@@ -8,24 +8,8 @@
 #include <chrono>
 #include <stdexcept>
 
-// ============================================================
-// Алгоритм 4: инкрементальный (Муравьёв)
-// ============================================================
-//
-// Два хранилища: M (накопленный результат) и DM (дельта — новые пары).
-// Инициализация: все начальные пары → в DM, M пуст.
-//
-// Каждая итерация:
-//   1. tmp[A]  += M[B] × DM[C]       (старое × новое)
-//   2. M[X]    |= DM[X]              (вливаем дельту в M)
-//   3. tmp[A]  += DM[B] × M[C]       (новое × обновлённый M)
-//      tmp[A]  |= DM[B]              (цепные правила A → B)
-//   4. DM[X]    = tmp[X] \ M[X]      (вычитаем известные пары)
-//
-// Стоп: DM пуста.
-
 CflrResult run_cflr_incremental(const CnfGrammar& grammar,
-                                 const LabeledGraph& graph)
+                                const LabeledGraph& graph)
 {
     auto t0 = std::chrono::high_resolution_clock::now();
     cuBool_Index n = static_cast<cuBool_Index>(graph.num_vertices());
@@ -43,6 +27,7 @@ CflrResult run_cflr_incremental(const CnfGrammar& grammar,
         cuBool_Matrix m = M.ensure(label);
         CB_CHECK(cuBool_Matrix_Build(m, rows.data(), cols.data(),
                  static_cast<cuBool_Index>(edges.size()), CUBOOL_HINT_NO));
+        M.invalidate(label);
     }
 
     {
@@ -64,6 +49,7 @@ CflrResult run_cflr_incremental(const CnfGrammar& grammar,
             if (!rows.empty()) {
                 CB_CHECK(cuBool_Matrix_Build(m, rows.data(), cols.data(),
                          static_cast<cuBool_Index>(rows.size()), CUBOOL_HINT_NO));
+                DM.invalidate(nt);
             }
         }
     }
@@ -72,6 +58,7 @@ CflrResult run_cflr_incremental(const CnfGrammar& grammar,
         cuBool_Matrix m = DM.ensure(nt);
         for (cuBool_Index i = 0; i < n; i++)
             CB_CHECK(cuBool_Matrix_SetElement(m, i, i));
+        DM.invalidate(nt);
     }
 
     for (auto& nt : grammar.nonterminals()) {
@@ -80,35 +67,37 @@ CflrResult run_cflr_incremental(const CnfGrammar& grammar,
     }
 
     int iter = 0;
+
     while (true) {
         iter++;
 
         MatrixStore tmp(n);
+
         for (auto& [a, b, c] : grammar.complex_rules()) {
+            if (M.is_empty(b) || DM.is_empty(c)) continue;
+
             cuBool_Matrix mb = M.get(b);
             cuBool_Matrix dmc = DM.get(c);
             if (!mb || !dmc) continue;
-            cuBool_Index nb = 0, ndc = 0;
-            cuBool_Matrix_Nvals(mb, &nb);
-            cuBool_Matrix_Nvals(dmc, &ndc);
-            if (nb == 0 || ndc == 0) continue;
 
             CB_CHECK(cuBool_MxM(tmp.ensure(a), mb, dmc, CUBOOL_HINT_ACCUMULATE));
+            tmp.invalidate(a);
         }
 
         bool m_changed = false;
+
         for (auto& nt : grammar.nonterminals()) {
+            if (DM.is_empty(nt)) continue;
+
             cuBool_Matrix dm = DM.get(nt);
-            if (!dm) continue;
-            cuBool_Index dm_nv = 0;
-            cuBool_Matrix_Nvals(dm, &dm_nv);
-            if (dm_nv == 0) continue;
+            cuBool_Matrix ma = M.get(nt);
+            if (!dm || !ma) continue;
 
             cuBool_Index old_nv = M.nvals_of(nt);
 
             cuBool_Matrix merged;
             CB_CHECK(cuBool_Matrix_New(&merged, n, n));
-            CB_CHECK(cuBool_Matrix_EWiseAdd(merged, M.get(nt), dm, CUBOOL_HINT_NO));
+            CB_CHECK(cuBool_Matrix_EWiseAdd(merged, ma, dm, CUBOOL_HINT_NO));
             M.replace(nt, merged);
 
             cuBool_Index new_nv = M.nvals_of(nt);
@@ -121,27 +110,26 @@ CflrResult run_cflr_incremental(const CnfGrammar& grammar,
         }
 
         for (auto& [a, b, c] : grammar.complex_rules()) {
+            if (DM.is_empty(b) || M.is_empty(c)) continue;
+
             cuBool_Matrix dmb = DM.get(b);
             cuBool_Matrix mc = M.get(c);
             if (!dmb || !mc) continue;
-            cuBool_Index ndb = 0, nc = 0;
-            cuBool_Matrix_Nvals(dmb, &ndb);
-            cuBool_Matrix_Nvals(mc, &nc);
-            if (ndb == 0 || nc == 0) continue;
 
             CB_CHECK(cuBool_MxM(tmp.ensure(a), dmb, mc, CUBOOL_HINT_ACCUMULATE));
+            tmp.invalidate(a);
         }
 
         for (auto& [a, b] : grammar.simple_rules()) {
+            if (DM.is_empty(b)) continue;
+
             cuBool_Matrix dmb = DM.get(b);
             if (!dmb) continue;
-            cuBool_Index ndb = 0;
-            cuBool_Matrix_Nvals(dmb, &ndb);
-            if (ndb == 0) continue;
 
+            cuBool_Matrix ta = tmp.ensure(a);
             cuBool_Matrix merged;
             CB_CHECK(cuBool_Matrix_New(&merged, n, n));
-            CB_CHECK(cuBool_Matrix_EWiseAdd(merged, tmp.ensure(a), dmb, CUBOOL_HINT_NO));
+            CB_CHECK(cuBool_Matrix_EWiseAdd(merged, ta, dmb, CUBOOL_HINT_NO));
             tmp.replace(a, merged);
         }
 
@@ -149,15 +137,15 @@ CflrResult run_cflr_incremental(const CnfGrammar& grammar,
         uint64_t dm_total = 0;
 
         for (auto& nt : grammar.nonterminals()) {
+            if (tmp.is_empty(nt)) continue;
+
             cuBool_Matrix t = tmp.get(nt);
-            if (!t) continue;
-            cuBool_Index tnv = 0;
-            cuBool_Matrix_Nvals(t, &tnv);
-            if (tnv == 0) continue;
+            cuBool_Matrix ma = M.get(nt);
+            if (!t || !ma) continue;
 
             cuBool_Matrix diff;
             CB_CHECK(cuBool_Matrix_New(&diff, n, n));
-            CB_CHECK(cuBool_Matrix_EWiseMulInverted(diff, t, M.get(nt), CUBOOL_HINT_NO));
+            CB_CHECK(cuBool_Matrix_EWiseMulInverted(diff, t, ma, CUBOOL_HINT_NO));
 
             cuBool_Index dnv = 0;
             CB_CHECK(cuBool_Matrix_Nvals(diff, &dnv));

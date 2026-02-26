@@ -11,13 +11,11 @@
 CflrResult run_cflr_non_incremental(const CnfGrammar& grammar, const LabeledGraph& graph)
 {
     auto t0 = std::chrono::high_resolution_clock::now();
-
     cuBool_Index n = static_cast<cuBool_Index>(graph.num_vertices());
     MatrixStore M(n);
 
     for (auto& [label, edges] : graph.edges_by_label()) {
         if (edges.empty()) continue;
-
         std::vector<cuBool_Index> rows(edges.size()), cols(edges.size());
         for (size_t i = 0; i < edges.size(); i++) {
             rows[i] = edges[i].src;
@@ -26,7 +24,9 @@ CflrResult run_cflr_non_incremental(const CnfGrammar& grammar, const LabeledGrap
         cuBool_Matrix m = M.ensure(label);
         CB_CHECK(cuBool_Matrix_Build(m, rows.data(), cols.data(),
                  static_cast<cuBool_Index>(edges.size()), CUBOOL_HINT_NO));
+        M.invalidate(label);
     }
+
     {
         std::unordered_map<std::string, std::vector<std::string>> nt_terms;
         for (auto& [nt, term] : grammar.terminal_rules())
@@ -46,6 +46,7 @@ CflrResult run_cflr_non_incremental(const CnfGrammar& grammar, const LabeledGrap
             if (!rows.empty()) {
                 CB_CHECK(cuBool_Matrix_Build(m, rows.data(), cols.data(),
                          static_cast<cuBool_Index>(rows.size()), CUBOOL_HINT_NO));
+                M.invalidate(nt);
             }
         }
     }
@@ -54,6 +55,7 @@ CflrResult run_cflr_non_incremental(const CnfGrammar& grammar, const LabeledGrap
         cuBool_Matrix m = M.ensure(nt);
         for (cuBool_Index i = 0; i < n; i++)
             CB_CHECK(cuBool_Matrix_SetElement(m, i, i));
+        M.invalidate(nt);
     }
 
     for (auto& nt : grammar.nonterminals())
@@ -62,32 +64,29 @@ CflrResult run_cflr_non_incremental(const CnfGrammar& grammar, const LabeledGrap
     int iter = 0;
     uint64_t prev_total = 0;
     uint64_t cur_total = M.total_nvals();
+
     while (cur_total != prev_total) {
         prev_total = cur_total;
         iter++;
 
         for (auto& [a, b, c] : grammar.complex_rules()) {
+            if (M.is_empty(b) || M.is_empty(c)) continue;
+
             cuBool_Matrix ma = M.get(a);
             cuBool_Matrix mb = M.get(b);
             cuBool_Matrix mc = M.get(c);
             if (!ma || !mb || !mc) continue;
 
-            cuBool_Index nb = 0, nc = 0;
-            cuBool_Matrix_Nvals(mb, &nb);
-            cuBool_Matrix_Nvals(mc, &nc);
-            if (nb == 0 || nc == 0) continue;
-
             CB_CHECK(cuBool_MxM(ma, mb, mc, CUBOOL_HINT_ACCUMULATE));
+            M.invalidate(a);
         }
 
         for (auto& [a, b] : grammar.simple_rules()) {
+            if (M.is_empty(b)) continue;
+
             cuBool_Matrix ma = M.get(a);
             cuBool_Matrix mb = M.get(b);
             if (!ma || !mb) continue;
-
-            cuBool_Index nb = 0;
-            cuBool_Matrix_Nvals(mb, &nb);
-            if (nb == 0) continue;
 
             cuBool_Matrix tmp;
             CB_CHECK(cuBool_Matrix_New(&tmp, n, n));
@@ -112,6 +111,5 @@ CflrResult run_cflr_non_incremental(const CnfGrammar& grammar, const LabeledGrap
     std::cout << "\nСтартовый символ '" << grammar.start_symbol()
               << "': " << result.start_nvals << " достижимых пар\n"
               << "Время: " << elapsed << " сек, итераций: " << iter << "\n";
-
     return result;
 }

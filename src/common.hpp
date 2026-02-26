@@ -1,5 +1,8 @@
 #pragma once
 
+#include <cstdint>
+#include "cubool/cubool.h"
+
 #define CB_CHECK(call)                                                          \
     do {                                                                        \
         cuBool_Status _s = (call);                                              \
