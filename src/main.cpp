@@ -2,6 +2,7 @@
 #include "graph/graph.hpp"
 #include "base_algo/base_algo.hpp"
 #include "incremental_algo/incremental_algo.hpp"
+#include "lazy_algo/lazy_algo.hpp"
 
 #include <cubool/cubool.h>
 #include <iostream>
@@ -16,7 +17,7 @@ static void usage(const char* prog) {
               << "  --graph <путь>     список рёбер: 'src dst label' на строку\n"
               << "\n"
               << "Опции:\n"
-              << "  --algo <имя>       алгоритм: base | incremental (по умолчанию: base)\n"
+              << "  --algo <имя>       алгоритм: base | incremental | lazy (по умолчанию: base)\n"
               << "  --cpu              принудительно использовать CPU бэкенд\n"
               << "  --help             показать эту справку\n";
 }
@@ -54,9 +55,9 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    if (algo != "base" && algo != "incremental") {
+    if (algo != "base" && algo != "incremental" && algo != "lazy") {
         std::cerr << "Ошибка: неизвестный алгоритм '" << algo << "'\n"
-                  << "Допустимые значения: base, incremental\n";
+                  << "Допустимые значения: base, incremental, lazy\n";
         return 1;
     }
 
@@ -64,16 +65,20 @@ int main(int argc, char** argv) {
         LabeledGraph graph = LabeledGraph::load(graph_path);
         TemplateGrammar tmpl = TemplateGrammar::load(grammar_path);
         CnfGrammar grammar = CnfGrammar::expand(tmpl, graph.labels());
+
         cuBool_Status status = cuBool_Initialize(init_hints);
         if (status != CUBOOL_STATUS_SUCCESS) {
             std::cerr << "Ошибка инициализации cuBool (код=" << status << ")\n";
             return 1;
         }
 
-        std::cout << "\n=== Запуск CFL-достижимости (" << algo << ") ===\n";
-        CflrResult result = (algo == "incremental")
-            ? run_cflr_incremental(grammar, graph)
-            : run_cflr_non_incremental(grammar, graph);
+        CflrResult result;
+        if (algo == "incremental")
+            result = run_cflr_incremental(grammar, graph);
+        else if (algo == "lazy")
+            result = run_cflr_lazy(grammar, graph);
+        else
+            result = run_cflr_non_incremental(grammar, graph);
 
         std::cout << "\n=== Результат ===\n";
         std::cout << "AnalysisTime: " << result.elapsed_secs << "\n";

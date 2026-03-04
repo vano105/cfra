@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include "cubool/cubool.h"
+#include <stdexcept>
 
 #define CB_CHECK(call)                                                          \
     do {                                                                        \
