@@ -87,8 +87,8 @@ for solver_spec in "${SOLVERS[@]}"; do
                 fi
             fi
 
-            sedges=$(echo "$output" | grep -oP '#SEdges:\s*\K[0-9]+' | tail -1 || echo "")
-            reported_time=$(echo "$output" | grep -oP 'AnalysisTime:\s*\K[0-9.]+' | tail -1 || echo "")
+            sedges=$(echo "$output" | grep -oP '#SEdges[:\t]\s*\K[0-9]+' | tail -1 || echo "")
+            reported_time=$(echo "$output" | grep -oP 'AnalysisTime[:\t]\s*\K[0-9.]+' | tail -1 || echo "")
 
             if [[ -n "$reported_time" ]]; then
                 time_val="$reported_time"
