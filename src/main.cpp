@@ -9,17 +9,17 @@
 #include <string>
 
 static void usage(const char* prog) {
-    std::cerr << "Использование:\n"
-              << "  " << prog << " --grammar <путь> --graph <путь> [опции]\n"
+    std::cerr << "Usage:\n"
+              << "  " << prog << " --grammar <path> --graph <path> [options]\n"
               << "\n"
-              << "Обязательные:\n"
-              << "  --grammar <путь>   POCR CNF грамматика (с шаблонами _i)\n"
-              << "  --graph <путь>     список рёбер: 'src dst label' на строку\n"
+              << "Required:\n"
+              << "  --grammar <path>   POCR CNF grammar (with _i templates)\n"
+              << "  --graph <path>     edge list: 'src dst label' per line\n"
               << "\n"
-              << "Опции:\n"
-              << "  --algo <имя>       алгоритм: base | incremental | lazy (по умолчанию: base)\n"
-              << "  --cpu              принудительно использовать CPU бэкенд\n"
-              << "  --help             показать эту справку\n";
+              << "Options:\n"
+              << "  --algo <name>      algorithm: base | incremental | lazy (default: base)\n"
+              << "  --cpu              force CPU backend\n"
+              << "  --help             show this help\n";
 }
 
 int main(int argc, char** argv) {
@@ -43,21 +43,21 @@ int main(int argc, char** argv) {
             usage(argv[0]);
             return 0;
         } else {
-            std::cerr << "Неизвестный аргумент: " << arg << "\n\n";
+            std::cerr << "Unknown argument: " << arg << "\n\n";
             usage(argv[0]);
             return 1;
         }
     }
 
     if (grammar_path.empty() || graph_path.empty()) {
-        std::cerr << "Ошибка: необходимо указать --grammar и --graph\n\n";
+        std::cerr << "Error: --grammar and --graph are required\n\n";
         usage(argv[0]);
         return 1;
     }
 
     if (algo != "base" && algo != "incremental" && algo != "lazy") {
-        std::cerr << "Ошибка: неизвестный алгоритм '" << algo << "'\n"
-                  << "Допустимые значения: base, incremental, lazy\n";
+        std::cerr << "Error: unknown algorithm '" << algo << "'\n"
+                  << "Valid values: base, incremental, lazy\n";
         return 1;
     }
 
@@ -68,7 +68,7 @@ int main(int argc, char** argv) {
 
         cuBool_Status status = cuBool_Initialize(init_hints);
         if (status != CUBOOL_STATUS_SUCCESS) {
-            std::cerr << "Ошибка инициализации cuBool (код=" << status << ")\n";
+            std::cerr << "cuBool initialization failed (code=" << status << ")\n";
             return 1;
         }
 
@@ -80,14 +80,13 @@ int main(int argc, char** argv) {
         else
             result = run_cflr_non_incremental(grammar, graph);
 
-        std::cout << "\n=== Результат ===\n";
         std::cout << "AnalysisTime: " << result.elapsed_secs << "\n";
         std::cout << "#SEdges: " << result.start_nvals << "\n";
 
         cuBool_Finalize();
 
     } catch (const std::exception& e) {
-        std::cerr << "Ошибка: " << e.what() << "\n";
+        std::cerr << "Error: " << e.what() << "\n";
         cuBool_Finalize();
         return 1;
     }

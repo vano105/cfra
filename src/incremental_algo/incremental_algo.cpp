@@ -4,7 +4,6 @@
 
 #include <cubool/cubool.h>
 #include <unordered_map>
-#include <iostream>
 #include <chrono>
 #include <stdexcept>
 
@@ -105,7 +104,6 @@ CflrResult run_cflr_incremental(const CnfGrammar& grammar,
         }
 
         if (!m_changed) {
-            std::cout << "  итерация " << iter << ": сходимость (DM ⊆ M)\n";
             break;
         }
 
@@ -158,9 +156,6 @@ CflrResult run_cflr_incremental(const CnfGrammar& grammar,
             }
         }
 
-        std::cout << "  итерация " << iter << ": M=" << M.total_nvals()
-                  << ", DM=" << dm_total << "\n";
-
         if (dm_total == 0) {
             break;
         }
@@ -175,8 +170,5 @@ CflrResult run_cflr_incremental(const CnfGrammar& grammar,
     result.iterations   = iter;
     result.elapsed_secs = elapsed;
 
-    std::cout << "\n[инкр] Стартовый символ '" << grammar.start_symbol()
-              << "': " << result.start_nvals << " достижимых пар\n"
-              << "[инкр] Время: " << elapsed << " сек, итераций: " << iter << "\n";
     return result;
 }

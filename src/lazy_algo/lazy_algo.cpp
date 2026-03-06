@@ -7,7 +7,6 @@
 #include <cmath>
 #include <cubool/cubool.h>
 #include <unordered_map>
-#include <iostream>
 #include <chrono>
 #include <stdexcept>
 
@@ -166,9 +165,6 @@ CflrResult run_cflr_lazy(const CnfGrammar& grammar,
             }
         }
 
-        std::cout << "  итерация " << iter << ": M=" << M.total_nvals()
-                  << ", DM=" << dm_total << "\n";
-
         if (dm_total == 0) {
             break;
         }
@@ -183,8 +179,5 @@ CflrResult run_cflr_lazy(const CnfGrammar& grammar,
     result.iterations   = iter;
     result.elapsed_secs = elapsed;
 
-    std::cout << "\n[lazy] Стартовый символ '" << grammar.start_symbol()
-              << "': " << result.start_nvals << " достижимых пар\n"
-              << "[lazy] Время: " << elapsed << " сек, итераций: " << iter << "\n";
     return result;
 }

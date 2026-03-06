@@ -23,9 +23,9 @@ static std::string instantiate(const std::string& symbol, int index) {
 
 TemplateGrammar TemplateGrammar::load(const std::string &path) {
     TemplateGrammar g;
-        std::ifstream fin(path);
+    std::ifstream fin(path);
     if (!fin.is_open())
-        throw std::runtime_error("Не удалось открыть файл грамматики: " + path);
+        throw std::runtime_error("Cannot open grammar file: " + path);
 
     std::string line;
     bool reading_footer = false;
@@ -56,8 +56,8 @@ TemplateGrammar TemplateGrammar::load(const std::string &path) {
         } else if (tokens.size() == 3) {
             g.complex_rules_.emplace_back(tokens[0], tokens[1], tokens[2]);
         } else {
-            std::cerr << "Предупреждение: пропускаем строку с "
-                      << tokens.size() << " токенами: " << line << "\n";
+            std::cerr << "Warning: skipping line with "
+                      << tokens.size() << " tokens: " << line << "\n";
         }
     }
 
@@ -161,12 +161,11 @@ CnfGrammar CnfGrammar::expand(const TemplateGrammar& tmpl,
         if (!graph_labels.count(c)) result.nonterminals_.insert(c);
     }
 
-    std::cout << "Раскрытая грамматика: "
-              << result.epsilon_rules_.size() << " ε, "
-              << result.terminal_rules_.size() << " терминальных, "
-              << result.simple_rules_.size() << " цепных, "
-              << result.complex_rules_.size() << " комплексных правил, "
-              << result.nonterminals_.size() << " нетерминалов\n";
-
+    std::cout << "Expanded grammar: "
+          << result.epsilon_rules_.size() << " epsilon rules, "
+          << result.terminal_rules_.size() << " terminal rules, "
+          << result.simple_rules_.size() << " chain rules, "
+          << result.complex_rules_.size() << " complex rules, "
+          << result.nonterminals_.size() << " nonterminals\n";
     return result;
 }

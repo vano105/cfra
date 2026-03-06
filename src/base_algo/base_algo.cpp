@@ -4,7 +4,6 @@
 
 #include <cubool/cubool.h>
 #include <unordered_map>
-#include <iostream>
 #include <chrono>
 #include <stdexcept>
 
@@ -95,8 +94,6 @@ CflrResult run_cflr_non_incremental(const CnfGrammar& grammar, const LabeledGrap
         }
 
         cur_total = M.total_nvals();
-        std::cout << "  итерация " << iter << ": nvals=" << cur_total
-                  << " (+" << (int64_t)(cur_total - prev_total) << ")\n";
     }
 
     auto t1 = std::chrono::high_resolution_clock::now();
@@ -108,8 +105,5 @@ CflrResult run_cflr_non_incremental(const CnfGrammar& grammar, const LabeledGrap
     result.iterations   = iter;
     result.elapsed_secs = elapsed;
 
-    std::cout << "\nСтартовый символ '" << grammar.start_symbol()
-              << "': " << result.start_nvals << " достижимых пар\n"
-              << "Время: " << elapsed << " сек, итераций: " << iter << "\n";
     return result;
 }

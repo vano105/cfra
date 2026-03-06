@@ -10,7 +10,7 @@ LabeledGraph LabeledGraph::load(const std::string& path) {
     LabeledGraph g;
     std::ifstream fin(path);
     if (!fin.is_open())
-        throw std::runtime_error("Не удалось открыть файл графа: " + path);
+        throw std::runtime_error("Cannot open graph file: " + path);
 
     std::string line;
     VertexId max_id = 0;
@@ -24,7 +24,7 @@ LabeledGraph LabeledGraph::load(const std::string& path) {
         VertexId src, dst;
         std::string label;
         if (!(iss >> src >> dst >> label)) {
-            std::cerr << "Предупреждение: пропускаем строку: " << line << "\n";
+            std::cerr << "Warning: skipping malformed line: " << line << "\n";
             continue;
         }
 
@@ -34,14 +34,13 @@ LabeledGraph LabeledGraph::load(const std::string& path) {
     }
 
     g.num_vertices_ = max_id + 1;
-
     uint64_t total_edges = 0;
     for (auto& [_, edges] : g.edges_by_label_)
         total_edges += edges.size();
 
-    std::cout << "Граф: " << g.num_vertices_ << " вершин, "
-              << g.labels_.size() << " меток, "
-              << total_edges << " рёбер\n";
+    std::cout << "Graph: " << g.num_vertices_ << " vertices, "
+              << g.labels_.size() << " labels, "
+              << total_edges << " edges\n";
 
     return g;
 }
