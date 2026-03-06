@@ -1,24 +1,25 @@
 #!/usr/bin/env bash
 
-# Число повторов каждого замера
+# Number of repetitions per measurement
 RUNS=3
 
-# Таймаут в секундах
+# Timeout in seconds
 TIMEOUT=600
 
-# Файл с результатами
+# Output file
 OUTPUT_CSV="results.csv"
 
-# Решатели
+# Solvers
+# Format: "name|command"
+# {graph} and {grammar} are substituted automatically.
 SOLVERS=(
     "cfra-base|./build/cfra --graph {graph} --grammar {grammar} --algo base"
     "cfra-incremental|./build/cfra --graph {graph} --grammar {grammar} --algo incremental"
     "cfra-lazy|./build/cfra --graph {graph} --grammar {grammar} --algo lazy"
 )
 
-# Датасеты
-# Формат: "имя|путь_к_графу|путь_к_грамматике"
-
+# Datasets
+# Format: "name|graph_path|grammar_path"
 DATASETS=(
     # === Java (points-to analysis) ===
     "avrora|data/test_data/java/avrora/avrora.csv|data/test_data/java/avrora/grammar.cnf"
@@ -30,6 +31,18 @@ DATASETS=(
     "pmd|data/test_data/java/pmd/pmd.csv|data/test_data/java/pmd/grammar.cnf"
     "sunflow|data/test_data/java/sunflow/sunflow.csv|data/test_data/java/sunflow/grammar.cnf"
     "tomcat|data/test_data/java/tomcat/tomcat.csv|data/test_data/java/tomcat/grammar.cnf"
+    "commons_io|data/test_data/java/commons_io/commons_io.csv|data/test_data/java/commons_io/grammar.cnf"
+    "luindex|data/test_data/java/luindex/luindex.csv|data/test_data/java/luindex/grammar.cnf"
+    "commons_lang3|data/test_data/java/commons_lang3/commons_lang3.csv|data/test_data/java/commons_lang3/grammar.cnf"
+    "mockito|data/test_data/java/mockito/mockito.csv|data/test_data/java/mockito/grammar.cnf"
+    "fop|data/test_data/java/fop/fop.csv|data/test_data/java/fop/grammar.cnf"
+    "xalan|data/test_data/java/xalan/xalan.csv|data/test_data/java/xalan/grammar.cnf"
+    "junit5|data/test_data/java/junit5/junit5.csv|data/test_data/java/junit5/grammar.cnf"
+    "jython|data/test_data/java/jython/jython.csv|data/test_data/java/jython/grammar.cnf"
+    "tradesoap|data/test_data/java/tradesoap/tradesoap.csv|data/test_data/java/tradesoap/grammar.cnf"
+    "tradebeans|data/test_data/java/tradebeans/tradebeans.csv|data/test_data/java/tradebeans/grammar.cnf"
+    "jackson|data/test_data/java/jackson/jackson.csv|data/test_data/java/jackson/grammar.cnf"
+    "guava|data/test_data/java/guava/guava.csv|data/test_data/java/guava/grammar.cnf"
 
     # === C alias analysis ===
     "arch|data/test_data/c_alias/arch/arch.csv|data/test_data/c_alias/arch/grammar.cnf"
@@ -40,6 +53,13 @@ DATASETS=(
     "mm|data/test_data/c_alias/mm/mm.csv|data/test_data/c_alias/mm/grammar.cnf"
     "net|data/test_data/c_alias/net/net.csv|data/test_data/c_alias/net/grammar.cnf"
     "sound|data/test_data/c_alias/sound/sound.csv|data/test_data/c_alias/sound/grammar.cnf"
+    "ipc|data/test_data/c_alias/ipc/ipc.csv|data/test_data/c_alias/ipc/grammar.cnf"
+    "block|data/test_data/c_alias/block/block.csv|data/test_data/c_alias/block/grammar.cnf"
+    "crypto|data/test_data/c_alias/crypto/crypto.csv|data/test_data/c_alias/crypto/grammar.cnf"
+    "security|data/test_data/c_alias/security/security.csv|data/test_data/c_alias/security/grammar.cnf"
+    "drivers|data/test_data/c_alias/drivers/drivers.csv|data/test_data/c_alias/drivers/grammar.cnf"
+    "apache|data/test_data/c_alias/apache/apache.csv|data/test_data/c_alias/apache/grammar.cnf"
+    "postgre|data/test_data/c_alias/postgre/postgre.csv|data/test_data/c_alias/postgre/grammar.cnf"
 
     # === RDF ===
     "eclass|data/test_data/rdf/eclass/eclass.csv|data/test_data/rdf/eclass/grammar.cnf"
