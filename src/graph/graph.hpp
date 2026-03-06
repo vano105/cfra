@@ -10,7 +10,7 @@ using VertexId = uint32_t;
 
 class LabeledGraph {
 public:
-    class Edge {
+    struct Edge {
     public:
         VertexId src;
         VertexId dst;

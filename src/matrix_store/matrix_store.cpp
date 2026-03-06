@@ -1,5 +1,5 @@
 #include "matrix_store.hpp"
-#include "../common.hpp"
+#include "common.hpp"
 
 MatrixStore::MatrixStore(MatrixStore&& o) noexcept : n_(o.n_), map_(std::move(o.map_)) {
     o.map_.clear();
@@ -37,7 +37,7 @@ cuBool_Matrix MatrixStore::get(const std::string& sym) const {
     return (it != map_.end()) ? it->second : nullptr;
 }
 
-cuBool_Matrix MatrixStore::ensure(const std::string& sym) {
+cuBool_Matrix MatrixStore::get_ensure(const std::string& sym) {
     auto& m = map_[sym];
     if (!m) {
         CB_CHECK(cuBool_Matrix_New(&m, n_, n_));

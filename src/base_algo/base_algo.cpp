@@ -1,6 +1,5 @@
 #include "base_algo.hpp"
-#include "../matrix_store/matrix_store.hpp"
-#include "../common.hpp"
+#include "matrix_store.hpp"
 
 #include <cubool/cubool.h>
 #include <unordered_map>
@@ -20,45 +19,44 @@ CflrResult run_cflr_non_incremental(const CnfGrammar& grammar, const LabeledGrap
             rows[i] = edges[i].src;
             cols[i] = edges[i].dst;
         }
-        cuBool_Matrix m = M.ensure(label);
+        cuBool_Matrix m = M.get_ensure(label);
         CB_CHECK(cuBool_Matrix_Build(m, rows.data(), cols.data(),
                  static_cast<cuBool_Index>(edges.size()), CUBOOL_HINT_NO));
         M.invalidate(label);
     }
 
-    {
-        std::unordered_map<std::string, std::vector<std::string>> nt_terms;
-        for (auto& [nt, term] : grammar.terminal_rules())
-            nt_terms[nt].push_back(term);
+    std::unordered_map<std::string, std::vector<std::string>> nt_terms;
+    for (auto& [nt, term] : grammar.terminal_rules())
+        nt_terms[nt].push_back(term);
 
-        for (auto& [nt, terms] : nt_terms) {
-            std::vector<cuBool_Index> rows, cols;
-            for (auto& term : terms) {
-                auto it = graph.edges_by_label().find(term);
-                if (it == graph.edges_by_label().end()) continue;
-                for (auto& e : it->second) {
-                    rows.push_back(e.src);
-                    cols.push_back(e.dst);
-                }
+    for (auto& [nt, terms] : nt_terms) {
+        std::vector<cuBool_Index> rows, cols;
+        for (auto& term : terms) {
+            auto it = graph.edges_by_label().find(term);
+            if (it == graph.edges_by_label().end()) continue;
+
+            for (auto& e : it->second) {
+                rows.push_back(e.src);
+                cols.push_back(e.dst);
             }
-            cuBool_Matrix m = M.ensure(nt);
-            if (!rows.empty()) {
-                CB_CHECK(cuBool_Matrix_Build(m, rows.data(), cols.data(),
-                         static_cast<cuBool_Index>(rows.size()), CUBOOL_HINT_NO));
-                M.invalidate(nt);
-            }
+        }
+        cuBool_Matrix m = M.get_ensure(nt);
+        if (!rows.empty()) {
+            CB_CHECK(cuBool_Matrix_Build(m, rows.data(), cols.data(),
+                     static_cast<cuBool_Index>(rows.size()), CUBOOL_HINT_NO));
+            M.invalidate(nt);
         }
     }
 
     for (auto& nt : grammar.epsilon_rules()) {
-        cuBool_Matrix m = M.ensure(nt);
+        cuBool_Matrix m = M.get_ensure(nt);
         for (cuBool_Index i = 0; i < n; i++)
             CB_CHECK(cuBool_Matrix_SetElement(m, i, i));
         M.invalidate(nt);
     }
 
     for (auto& nt : grammar.nonterminals())
-        M.ensure(nt);
+        M.get_ensure(nt);
 
     int iter = 0;
     uint64_t prev_total = 0;

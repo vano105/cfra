@@ -6,7 +6,8 @@ add_executable(${CMAKE_PROJECT_NAME} "")
 
 add_subdirectory(cuBool)
 
-target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC cuBool/cubool/include/cubool)
+target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC cuBool/cubool/include/cubool
+        src/grammar src/graph src/matrix_store src)
 
 target_link_directories(${CMAKE_PROJECT_NAME} PUBLIC build/cuBool/cubool)
 target_link_libraries(${CMAKE_PROJECT_NAME} PUBLIC cubool)

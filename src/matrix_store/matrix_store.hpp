@@ -20,7 +20,7 @@ public:
     void swap(MatrixStore& other) noexcept;
     void clear();
     cuBool_Matrix get(const std::string& sym) const;
-    cuBool_Matrix ensure(const std::string& sym);
+    cuBool_Matrix get_ensure(const std::string& sym);
     void replace(const std::string& sym, cuBool_Matrix new_m);
     cuBool_Index nvals_of(const std::string& sym) const;
     bool is_empty(const std::string& sym) const;

@@ -73,12 +73,15 @@ int main(int argc, char** argv) {
         }
 
         CflrResult result;
-        if (algo == "incremental")
+        if (algo == "incremental") {
             result = run_cflr_incremental(grammar, graph);
-        else if (algo == "lazy")
+        }
+        else if (algo == "lazy") {
             result = run_cflr_lazy(grammar, graph);
-        else
+        }
+        else {
             result = run_cflr_non_incremental(grammar, graph);
+        }
 
         std::cout << "AnalysisTime: " << result.elapsed_secs << "\n";
         std::cout << "#SEdges: " << result.start_nvals << "\n";

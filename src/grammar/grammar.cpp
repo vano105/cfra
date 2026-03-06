@@ -108,10 +108,6 @@ CnfGrammar CnfGrammar::expand(const TemplateGrammar& tmpl,
         return is_template(sym) ? instantiate(sym, idx) : sym;
     };
 
-    auto has_template = [](const auto&... syms) -> bool {
-        return (is_template(syms) || ...);
-    };
-
     for (auto& sym : tmpl.epsilon_rules()) {
         if (is_template(sym)) {
             for (int idx : indices)
@@ -122,7 +118,7 @@ CnfGrammar CnfGrammar::expand(const TemplateGrammar& tmpl,
     }
 
     for (auto& [a, x] : tmpl.two_token_rules()) {
-        if (has_template(a, x)) {
+        if (is_template(a) || is_template(x)) {
             for (int idx : indices) {
                 auto ea = expand_sym(a, idx);
                 auto ex = expand_sym(x, idx);
@@ -140,7 +136,7 @@ CnfGrammar CnfGrammar::expand(const TemplateGrammar& tmpl,
     }
 
     for (auto& [a, b, c] : tmpl.complex_rules()) {
-        if (has_template(a, b, c)) {
+        if (is_template(a) || is_template(b) || is_template(c)) {
             for (int idx : indices) {
                 result.complex_rules_.emplace_back(
                     expand_sym(a, idx),

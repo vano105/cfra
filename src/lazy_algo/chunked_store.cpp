@@ -1,4 +1,4 @@
-#include "../common.hpp"
+#include "common.hpp"
 #include "chunked_store.hpp"
 
 #include <algorithm>

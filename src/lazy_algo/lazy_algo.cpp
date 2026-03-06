@@ -1,6 +1,5 @@
 #include "lazy_algo.hpp"
-#include "../matrix_store/matrix_store.hpp"
-#include "../common.hpp"
+#include "matrix_store.hpp"
 #include "chunked_store.hpp"
 
 #include <algorithm>
@@ -34,38 +33,36 @@ CflrResult run_cflr_lazy(const CnfGrammar& grammar,
         M.invalidate(label);
     }
 
-    {
-        std::unordered_map<std::string, std::vector<std::string>> nt_terms;
-        for (auto& [nt, term] : grammar.terminal_rules())
-            nt_terms[nt].push_back(term);
-        for (auto& [nt, terms] : nt_terms) {
-            std::vector<cuBool_Index> rows, cols;
-            for (auto& term : terms) {
-                auto it = graph.edges_by_label().find(term);
-                if (it == graph.edges_by_label().end()) continue;
-                for (auto& e : it->second) {
-                    rows.push_back(e.src);
-                    cols.push_back(e.dst);
-                }
+    std::unordered_map<std::string, std::vector<std::string>> nt_terms;
+    for (auto& [nt, term] : grammar.terminal_rules())
+        nt_terms[nt].push_back(term);
+    for (auto& [nt, terms] : nt_terms) {
+        std::vector<cuBool_Index> rows, cols;
+        for (auto& term : terms) {
+            auto it = graph.edges_by_label().find(term);
+            if (it == graph.edges_by_label().end()) continue;
+            for (auto& e : it->second) {
+                rows.push_back(e.src);
+                cols.push_back(e.dst);
             }
-            cuBool_Matrix m = DM.ensure(nt);
-            if (!rows.empty()) {
-                CB_CHECK(cuBool_Matrix_Build(m, rows.data(), cols.data(),
-                         static_cast<cuBool_Index>(rows.size()), CUBOOL_HINT_NO));
-                DM.invalidate(nt);
-            }
+        }
+        cuBool_Matrix m = DM.get_ensure(nt);
+        if (!rows.empty()) {
+            CB_CHECK(cuBool_Matrix_Build(m, rows.data(), cols.data(),
+                     static_cast<cuBool_Index>(rows.size()), CUBOOL_HINT_NO));
+            DM.invalidate(nt);
         }
     }
 
     for (auto& nt : grammar.epsilon_rules()) {
-        cuBool_Matrix m = DM.ensure(nt);
+        cuBool_Matrix m = DM.get_ensure(nt);
         for (cuBool_Index i = 0; i < n; i++)
             CB_CHECK(cuBool_Matrix_SetElement(m, i, i));
         DM.invalidate(nt);
     }
 
     for (auto& nt : grammar.nonterminals()) {
-        DM.ensure(nt);
+        DM.get_ensure(nt);
         M.ensure_empty(nt);
     }
 
@@ -83,7 +80,7 @@ CflrResult run_cflr_lazy(const CnfGrammar& grammar,
 
             for (auto& chunk : M.chunks(b_sym)) {
                 if (chunk.nvals == 0) continue;
-                CB_CHECK(cuBool_MxM(tmp.ensure(a), chunk.matrix, dmc,
+                CB_CHECK(cuBool_MxM(tmp.get_ensure(a), chunk.matrix, dmc,
                          CUBOOL_HINT_ACCUMULATE));
                 tmp.invalidate(a);
             }
@@ -115,7 +112,7 @@ CflrResult run_cflr_lazy(const CnfGrammar& grammar,
 
             for (auto& chunk : M.chunks(c)) {
                 if (chunk.nvals == 0) continue;
-                CB_CHECK(cuBool_MxM(tmp.ensure(a), dmb, chunk.matrix,
+                CB_CHECK(cuBool_MxM(tmp.get_ensure(a), dmb, chunk.matrix,
                          CUBOOL_HINT_ACCUMULATE));
                 tmp.invalidate(a);
             }
@@ -125,7 +122,7 @@ CflrResult run_cflr_lazy(const CnfGrammar& grammar,
             if (DM.is_empty(b_sym)) continue;
             cuBool_Matrix dmb = DM.get(b_sym);
             if (!dmb) continue;
-            cuBool_Matrix ta = tmp.ensure(a);
+            cuBool_Matrix ta = tmp.get_ensure(a);
             cuBool_Matrix merged;
             CB_CHECK(cuBool_Matrix_New(&merged, n, n));
             CB_CHECK(cuBool_Matrix_EWiseAdd(merged, ta, dmb, CUBOOL_HINT_NO));

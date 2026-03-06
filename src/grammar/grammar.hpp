@@ -6,6 +6,7 @@
 #include <set>
 #include <unordered_map>
 
+// struct + external load
 class TemplateGrammar {
 public:
     static TemplateGrammar load(const std::string& path);
