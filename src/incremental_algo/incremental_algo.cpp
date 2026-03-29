@@ -57,13 +57,26 @@ CflrResult run_cflr_incremental(const CnfGrammar& grammar,
         DM.invalidate(nt);
     }
 
+    for (auto& [a, b, c] : grammar.complex_rules()) {
+        if (!graph.edges_by_label().count(b) || !DM.is_empty(b)) continue;
+        cuBool_Matrix dup;
+        CB_CHECK(cuBool_Matrix_Duplicate(M.get(b), &dup));
+        DM.replace(b, dup);
+    }
+
+    for (auto& [a, b, c] : grammar.complex_rules()) {
+        if (!graph.edges_by_label().count(c) || !DM.is_empty(c)) continue;
+        cuBool_Matrix dup;
+        CB_CHECK(cuBool_Matrix_Duplicate(M.get(c), &dup));
+        DM.replace(c, dup);
+    }
+
     for (auto& nt : grammar.nonterminals()) {
         DM.get_ensure(nt);
         M.get_ensure(nt);
     }
 
     int iter = 0;
-
     while (true) {
         iter++;
 
@@ -80,8 +93,6 @@ CflrResult run_cflr_incremental(const CnfGrammar& grammar,
             tmp.invalidate(a);
         }
 
-        bool m_changed = false;
-
         for (auto& nt : grammar.nonterminals()) {
             if (DM.is_empty(nt)) continue;
 
@@ -97,11 +108,6 @@ CflrResult run_cflr_incremental(const CnfGrammar& grammar,
             M.replace(nt, merged);
 
             cuBool_Index new_nv = M.nvals_of(nt);
-            if (new_nv > old_nv) m_changed = true;
-        }
-
-        if (!m_changed) {
-            break;
         }
 
         for (auto& [a, b, c] : grammar.complex_rules()) {

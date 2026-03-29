@@ -61,13 +61,23 @@ CflrResult run_cflr_lazy(const CnfGrammar& grammar,
         DM.invalidate(nt);
     }
 
+    for (auto& [a, b_sym, c] : grammar.complex_rules()) {
+        for (const auto& sym : {b_sym, c}) {
+            if (!graph.edges_by_label().count(sym) || !DM.is_empty(sym)) continue;
+            const auto& ch = M.chunks(sym);
+            if (ch.empty() || ch[0].nvals == 0) continue;
+            cuBool_Matrix dup;
+            CB_CHECK(cuBool_Matrix_Duplicate(ch[0].matrix, &dup));
+            DM.replace(sym, dup);
+        }
+    }
+
     for (auto& nt : grammar.nonterminals()) {
         DM.get_ensure(nt);
         M.ensure_empty(nt);
     }
 
     int iter = 0;
-
     while (true) {
         iter++;
 
@@ -86,23 +96,14 @@ CflrResult run_cflr_lazy(const CnfGrammar& grammar,
             }
         }
 
-        bool m_changed = false;
-
         for (auto& nt : grammar.nonterminals()) {
             if (DM.is_empty(nt)) continue;
 
             cuBool_Matrix dm = DM.get(nt);
             cuBool_Index dm_nv = DM.nvals_of(nt);
-
-            m_changed = true;
-
             cuBool_Matrix dm_copy;
             CB_CHECK(cuBool_Matrix_Duplicate(dm, &dm_copy));
             M.lazy_add(nt, dm_copy, dm_nv);
-        }
-
-        if (!m_changed) {
-            break;
         }
 
         for (auto& [a, b_sym, c] : grammar.complex_rules()) {
