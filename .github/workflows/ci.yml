@@ -5,10 +5,11 @@ on:
     branches: [main, feature]
   pull_request:
     branches: [main, feature]
+  workflow_dispatch:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
@@ -19,11 +20,13 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake g++ build-essential
+          sudo apt-get install -y cmake g++-14 build-essential
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
 
       - name: Build (CPU backend)
         run: |
-          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCUBOOL_WITH_CUDA=OFF -DCUBOOL_COPY_TO_PY_PACKAGE=OFF -DCUBOOL_BUILD_TESTS=OFF
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCUBOOL_WITH_CUDA=OFF -DCUBOOL_COPY_TO_PY_PACKAGE=OFF -DCUBOOL_BUILD_TESTS=OFF -DCMAKE_CXX_COMPILER=g++-14 -DCMAKE_C_COMPILER=gcc-14
           cmake --build build -j$(nproc)
 
       - name: Test correctness
