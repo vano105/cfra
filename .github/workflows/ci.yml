@@ -23,7 +23,7 @@ jobs:
 
       - name: Build (CPU backend)
         run: |
-          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCUBOOL_WITH_CUDA=OFF
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCUBOOL_WITH_CUDA=OFF -DCUBOOL_COPY_TO_PY_PACKAGE=OFF -DCUBOOL_BUILD_TESTS=OFF
           cmake --build build -j$(nproc)
 
       - name: Test correctness
