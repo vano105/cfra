@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  push:
+    branches: [main, feature]
+  pull_request:
+    branches: [main, feature]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ build-essential
+
+      - name: Build (CPU backend)
+        run: |
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCUBOOL_WITH_CUDA=OFF
+          cmake --build build -j$(nproc)
+
+      - name: Test correctness
+        run: |
+          set -e
+
+          CFRA=./build/cfra
+          PASS=0
+          FAIL=0
+
+          run_test() {
+            local name="$1"
+            local graph="$2"
+            local grammar="$3"
+            local expected_sedges="$4"
+
+            for algo in base incremental lazy; do
+              sedges=$($CFRA --grammar "$grammar" --graph "$graph" --algo "$algo" --cpu \
+                | grep '#SEdges' | awk '{print $2}')
+
+              if [ "$sedges" = "$expected_sedges" ]; then
+                echo "  PASS: $name ($algo) #SEdges=$sedges"
+                PASS=$((PASS + 1))
+              else
+                echo "  FAIL: $name ($algo) #SEdges=$sedges (expected $expected_sedges)"
+                FAIL=$((FAIL + 1))
+              fi
+            done
+          }
+
+          echo "=== Running tests ==="
+
+          run_test "an_bn" \
+            "test_data/an_bn/graph.txt" \
+            "test_data/an_bn/grammar.cnf" \
+            "20"
+
+          run_test "transitive_loop" \
+            "test_data/transitive_loop/graph.txt" \
+            "test_data/transitive_loop/grammar.cnf" \
+            "21"
+
+          # Consistency check: no expected value, but all algorithms must agree
+          for dir in test_data/indexed_an_ab test_data/test_graph; do
+            name=$(basename "$dir")
+            grammar="$dir/grammar.cnf"
+            graph="$dir/graph.txt"
+
+            results=""
+            for algo in base incremental lazy; do
+              s=$($CFRA --grammar "$grammar" --graph "$graph" --algo "$algo" --cpu \
+                | grep '#SEdges' | awk '{print $2}')
+              results="$results $algo=$s"
+            done
+
+            base_val=$(echo "$results" | grep -oP 'base=\K[0-9]+')
+            incr_val=$(echo "$results" | grep -oP 'incremental=\K[0-9]+')
+            lazy_val=$(echo "$results" | grep -oP 'lazy=\K[0-9]+')
+
+            if [ "$base_val" = "$incr_val" ] && [ "$base_val" = "$lazy_val" ]; then
+              echo "  PASS: $name (consistency) #SEdges=$base_val"
+              PASS=$((PASS + 1))
+            else
+              echo "  FAIL: $name (consistency)$results"
+              FAIL=$((FAIL + 1))
+            fi
+          done
+
+          echo ""
+          echo "=== Results: $PASS passed, $FAIL failed ==="
+
+          if [ "$FAIL" -gt 0 ]; then
+            exit 1
+          fi
